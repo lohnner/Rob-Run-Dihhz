@@ -474,16 +474,22 @@
     $app.innerHTML = `
       <h1>Negócios</h1>
       <div class="guide-heroes">
-        <a class="guide-hero lab" href="#/laboratorio">
-          <img src="${ITEM.meth_lab_1 ? ITEM.meth_lab_1.icon : "img/cargo/cargo_hard_crystal_3.webp"}" alt="">
-          <div><div class="gh-kicker">Tutorial</div><div class="gh-title">Laboratório Químico</div>
-          <div class="gh-sub">Dos reagentes ao Saco de Pólvora: reator, freezer e mesa de laboratório, passo a passo.</div></div>
-        </a>
-        <a class="guide-hero farm" href="#/cultivo">
-          <img src="${ITEM.narco_farm_1 ? ITEM.narco_farm_1.icon : "img/cargo/cargo_bush_mature_1.webp"}" alt="">
-          <div><div class="gh-kicker">Tutorial</div><div class="gh-title">Sala de Cultivo</div>
-          <div class="gh-sub">Do Arbusto Florido ao Pacote de Colheita: mesa de cultivo e melhorias, passo a passo.</div></div>
-        </a>
+        <div class="gh-col">
+          <a class="guide-hero lab" href="#/laboratorio">
+            <img src="${ITEM.meth_lab_1 ? ITEM.meth_lab_1.icon : "img/cargo/cargo_hard_crystal_3.webp"}" alt="">
+            <div><div class="gh-kicker">Tutorial</div><div class="gh-title">Laboratório Químico</div>
+            <div class="gh-sub">Dos reagentes ao Saco de Pólvora: reator, freezer e mesa de laboratório, passo a passo.</div></div>
+          </a>
+          <button class="time-btn" data-times="lab">⏱️ Tempo <span class="muted">· produção e melhorias</span></button>
+        </div>
+        <div class="gh-col">
+          <a class="guide-hero farm" href="#/cultivo">
+            <img src="${ITEM.narco_farm_1 ? ITEM.narco_farm_1.icon : "img/cargo/cargo_bush_mature_1.webp"}" alt="">
+            <div><div class="gh-kicker">Tutorial</div><div class="gh-title">Sala de Cultivo</div>
+            <div class="gh-sub">Do Arbusto Florido ao Pacote de Colheita: mesa de cultivo e melhorias, passo a passo.</div></div>
+          </a>
+          <button class="time-btn" data-times="farm">⏱️ Tempo <span class="muted">· cultivo e melhorias</span></button>
+        </div>
       </div>
       <h2>Todas as mesas</h2>
       <div class="grid wide">
@@ -494,6 +500,88 @@
           <div>${esc(b.what)}</div>
         </a>`).join("")}
       </div>`;
+    $app.querySelectorAll("[data-times]").forEach(btn => btn.onclick = () => showTimes(btn.dataset.times));
+  }
+
+  /* ---------- production times (robrun.info item stats) ---------- */
+  const fmtSec = s => {
+    if (s < 60 && Math.abs(s - Math.round(s)) > .05) return String(Math.round(s * 10) / 10).replace(".", ",") + " s";
+    s = Math.round(s);
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    return h ? `${h} h ${String(m).padStart(2, "0")} min` : m ? `${m} min${r ? ` ${String(r).padStart(2, "0")} s` : ""}` : `${r} s`;
+  };
+  const pct = b => "+" + String(Math.round(b * 1000) / 10).replace(".", ",") + "%";
+  const tImg = id => ITEM[id] ? `<img src="${ITEM[id].icon}" alt="" class="t-ico">` : "";
+  const tName = id => ITEM[id] ? `<a href="#/item/${id}">${esc(ITEM[id].name.pt)}</a>` : esc(id);
+  // rows: [label html, total bonus]; base: seconds per tick
+  // key: enables the "Tempo total" column, fed by the total time (no upgrades) typed by the player
+  const boostTable = (base, rows, key, what) => `
+    ${key ? `<div class="t-total-in"><label for="tt_${key}">⏱️ Tempo total ${what} <b>sem melhorias</b>, como aparece no jogo:</label>
+      <span><input id="tt_${key}" data-total="${key}" type="text" inputmode="numeric" placeholder="ex.: 45:00" autocomplete="off"> <small class="muted">min:seg</small></span></div>` : ""}
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Melhorias instaladas</th><th class="num">Velocidade</th><th class="num">Tempo por tick</th>${key ? '<th class="num">Tempo total</th>' : ""}<th class="num">Economia</th></tr></thead><tbody>
+    ${rows.map(([lab, b]) => `<tr${b === rows[rows.length - 1][1] && b ? ' class="t-best"' : ""}><td>${lab}</td><td class="num">${b ? pct(b) : "—"}</td><td class="num">${fmtSec(base / (1 + b))}</td>${key ? `<td class="num"><b data-tt="${key}" data-b="${b}">—</b></td>` : ""}<td class="num">${b ? `−${Math.round((1 - 1 / (1 + b)) * 100)}%` : "—"}</td></tr>`).join("")}
+    </tbody></table></div>`;
+  // "45", "45:30", "1:05:00" → seconds (a single number = minutes)
+  const parseDur = v => {
+    const p = String(v || "").trim().replace(",", ".").split(":").map(Number);
+    if (!p.length || p.some(isNaN) || !p[0] && p.length === 1) return null;
+    const s = p.length === 1 ? p[0] * 60 : p.length === 2 ? p[0] * 60 + p[1] : p[0] * 3600 + p[1] * 60 + p[2];
+    return s > 0 ? s : null;
+  };
+  function wireTotals(root) {
+    root.querySelectorAll("[data-total]").forEach(inp => {
+      const key = inp.dataset.total, sk = "rr_total_" + key;
+      const draw = () => {
+        const s = parseDur(inp.value);
+        root.querySelectorAll(`[data-tt="${key}"]`).forEach(el => el.textContent = s ? fmtSec(s / (1 + Number(el.dataset.b))) : "—");
+      };
+      try { inp.value = localStorage.getItem(sk) || ""; } catch (e) {}
+      inp.addEventListener("input", () => { try { localStorage.setItem(sk, inp.value); } catch (e) {} draw(); });
+      draw();
+    });
+  }
+  const TIMES = {
+    lab: () => {
+      const R = [["cargo_production_workbench_1", 900, 4], ["cargo_production_workbench_2", 530, 6], ["cargo_production_workbench_3", 337, 8]];
+      const ev = "cargo_charge_workbench_upgrade_evaporator_1", rf = "cargo_charge_workbench_upgrade_refrigerant_1";
+      return `
+        <h3>${tImg("cargo_production_workbench_1")} Reator Químico</h3>
+        <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Versão</th><th class="num">Ciclo</th><th class="num">Ciclos</th><th class="num">Tempo do lote</th></tr></thead><tbody>
+        ${R.map(([id, c, n], k) => `<tr${k === 2 ? ' class="t-best"' : ""}><td>${tImg(id)} ${tName(id)} <small class="muted">Mk${k + 1}</small></td><td class="num">${fmtSec(c)}</td><td class="num">${n}</td><td class="num"><b>${fmtSec(c * n)}</b></td></tr>`).join("")}
+        </tbody></table></div>
+        <p class="muted t-note">O Motor Industrial, o Termômetro Industrial e o Conversor Químico <b>não mudam o tempo</b> do reator: eles só aumentam a chance de sair qualidade maior.</p>
+        <h3>${tImg("cargo_charge_workbench_lab_freezer_1")} Freezer Industrial</h3>
+        <p class="t-note">Tick de <b>6 min</b> · 4 espaços de carga · coleta em 5 s.</p>
+        ${boostTable(360, [["Sem melhoria", 0], [`${tImg(ev)} ${tName(ev)}`, .117], [`${tImg(rf)} ${tName(rf)}`, .13], [`${tImg(ev)}${tImg(rf)} As duas juntas`, .247]], "freezer", "para congelar")}
+        <h3>${tImg("cargo_workbench_lab_table_1")} Mesa de Laboratório</h3>
+        <p class="t-note">2 espaços (3 com a ${tName("cargo_open_workbench_upgrade_additional_slot_2")}). O tempo de embalagem não é divulgado.</p>`;
+    },
+    farm: () => {
+      const f = "fan_1", w = "water_pump_2", u = "uv_lamp_3";
+      return `
+        <h3>${tImg("cargo_charge_workbench_garden_bed")} Mesa de Cultivo</h3>
+        <p class="t-note">Tick de <b>36 s</b> · 6 espaços para plantas · coleta em 5 s. Cada tick faz a planta avançar no crescimento.</p>
+        ${boostTable(36, [["Sem melhoria", 0], [`${tImg(f)} ${tName(f)}`, .12], [`${tImg(w)} ${tName(w)}`, .14], [`${tImg(u)} ${tName(u)}`, .24],
+          [`${tImg(f)}${tImg(w)} Ventilador + Bomba`, .26], [`${tImg(f)}${tImg(u)} Ventilador + Lâmpada`, .36], [`${tImg(w)}${tImg(u)} Bomba + Lâmpada`, .38],
+          [`${tImg(f)}${tImg(w)}${tImg(u)} Todas as três`, .5]], "farm", "da planta")}
+        <p class="muted t-note">O jogo não divulga quantos ticks a planta precisa para amadurecer: digite acima o tempo total que aparece no relógio da mesa (sem melhorias) e a coluna <b>Tempo total</b> calcula na hora quanto fica com cada melhoria. Com as três, cai para 2/3 do normal.</p>`;
+    }
+  };
+  function showTimes(kind) {
+    const dlg = document.createElement("dialog");
+    dlg.className = "time-dlg";
+    dlg.innerHTML = `
+      <div class="t-head"><h2 style="margin:0">⏱️ Tempos · ${kind === "lab" ? "Laboratório Químico" : "Sala de Cultivo"}</h2><button class="btn small" data-close>✕</button></div>
+      ${TIMES[kind]()}
+      <p class="muted t-note" style="margin-top:14px">Tempos e bônus: ${SRC} (dados do jogo). Com melhorias: tempo ÷ (1 + soma dos bônus).</p>`;
+    document.body.appendChild(dlg);
+    const close = () => { dlg.close(); dlg.remove(); };
+    dlg.querySelector("[data-close]").onclick = close;
+    dlg.addEventListener("click", e => { if (e.target === dlg) close(); });
+    dlg.addEventListener("cancel", () => setTimeout(() => dlg.remove(), 0));
+    dlg.querySelectorAll("a").forEach(a => a.addEventListener("click", close));
+    wireTotals(dlg);
+    dlg.showModal();
   }
 
   function viewBench(id) {
