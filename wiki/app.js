@@ -23,6 +23,17 @@
   // where each item appears
   const SOURCES = {};
   D.buildings.forEach(b => b.rewards.forEach(r => (SOURCES[r] = SOURCES[r] || []).push(b.id)));
+  // items with no known source anywhere (game files, robrun.info): unconfirmed leads, shown as such
+  const ITEM_HINTS = {
+    vial_7: {
+      leads: [
+        ["cargo", "cargo_medicine", "Caixote de Medicamentos: o jogo diz que contém “muitos medicamentos”, e os outros frascos são da linha médica."],
+        ["place", "city_pharmacy_shop_east", "Farmácia (leste): tem a Ampola Medicinal (outro frasco) em destaque."],
+        ["place", "city_pharmacy_shop_west", "Farmácia (oeste): tem a Ampola Cosmética (outro frasco) em destaque."],
+        ["place", "city_drug_house", "Casa das Drogas: por ser droga ilegal."]
+      ]
+    }
+  };
 
   const RARITIES = [
     ["common", "Comum"], ["uncommon", "Incomum"], ["rare", "Raro"],
@@ -81,10 +92,14 @@
     if (!i) return `<span class="node">${esc(id)}</span>`;
     return `<a class="node ${extra}" href="#/item/${id}"><img src="${i.icon}" alt="" loading="lazy">${esc(i.name.pt)}${i.tier ? ` <small class="muted">#${i.tier}</small>` : ""}</a>`;
   };
+  // cargo icons extracted from the game client (img/cargo/<id>.webp); cargos without an icon fall back to 📦
+  const CARGO_NO_IMG = new Set();
+  const cargoImg = (id, cls = "") => CARGO[id] && !CARGO_NO_IMG.has(id)
+    ? `<img ${cls ? `class="${cls}" ` : ""}src="img/cargo/${id}.webp" alt="" loading="lazy">` : "📦";
   const cargoLink = (id, extra = "") => {
     const c = CARGO[id];
     const n = c ? c.name.pt : id;
-    return `<a class="node ${extra}" href="#/carga/${id}">📦 ${esc(n)} <small class="muted">${esc(id.replace(/^cargo_/, ""))}</small></a>`;
+    return `<a class="node ${extra}" href="#/carga/${id}">${cargoImg(id)} ${esc(n)} <small class="muted">${esc(id.replace(/^cargo_/, ""))}</small></a>`;
   };
   const textNode = (t, ico = "") => `<span class="node">${ico} ${esc(t)}</span>`;
   const arrow = `<span class="arrow">→</span>`;
@@ -309,27 +324,17 @@
       </section>
       <div class="grid wide">
         ${[["#/itens", "🎒", "Itens", "Todos os itens com ícone, descrição, categoria, preço e locais."],
-           ["#/mesas", "🛠️", "Mesas", "O que cada mesa faz, o que entra, o que sai e as melhorias."],
-           ["#/locais", "🗺️", "Locais", "Prédios de Looty Bay e o saque de cada um."],
            ["#/cargas", "📦", "Cargas", "Caixotes, cofres, malas e produtos do laboratório."],
+           ["#/locais", "🗺️", "Locais", "Prédios de Looty Bay e o saque de cada um."],
+           ["#/mesas", "🧪", "Negócios", "Laboratório, cultivo e as mesas da sua base, com tutorial passo a passo."],
            ["#/npcs", "🕴️", "NPCs e Venda", "Para quem vender cada coisa."],
            ["#/guia", "📖", "Guia", "Códice, efeitos e dicas oficiais do jogo."]]
           .map(([h, i, t, d]) => `<a class="card" href="${h}"><div class="tile-ico">${i}</div><div class="title">${t}</div><div class="sub">${d}</div></a>`).join("")}
-      </div>
-      <div class="panel" style="margin-top:22px">
-        <h2>Preços, raridade e chance de drop</h2>
-        <p>Preço de venda, raridade, preço de compra, trocas e pontos de saque fixos vêm da wiki de fãs ${SRC}, que extraiu esses dados do jogo (build ${esc(FAN.source.build || "?")}, ${esc(FAN.source.date || "?")}). Preços de carga vêm do <a href="${FAN.source.cargoUrl}" target="_blank" rel="noopener">artigo de cargas</a> deles.</p>
-        <p>A <b>% de drop</b> dos itens sorteados nos prédios não é pública em nenhuma fonte: o servidor faz o sorteio e nem as wikis de fãs conseguiram extrair. Se você medir no jogo, use <b>Editar valores</b>. Sua edição tem prioridade sobre a fonte e fica salva neste navegador. Para compartilhar, exporte e cole em <code>community-data.js</code>.</p>
-        <div class="row" style="max-width:520px">
-          <button class="btn" id="btnExport">Exportar valores (JSON)</button>
-          <button class="btn" id="btnImport">Importar valores</button>
-        </div>
       </div>`;
-    document.getElementById("btnExport").onclick = exportValues;
-    document.getElementById("btnImport").onclick = importValues;
   }
 
-  let itemState = { q: "", cat: "all", sort: "name" };
+  const RRANK = Object.fromEntries(RARITIES.map(([k], i) => [k, i + 1]));
+  let itemState = { q: "", cat: "all", sort: "rarity" };
   function viewItems() {
     setNav("itens");
     const counts = {};
@@ -340,17 +345,21 @@
       <div class="toolbar">
         <input id="iq" type="search" placeholder="Filtrar por nome…" value="${esc(itemState.q)}">
         <select id="isort">
+          <option value="rarity">Ordenar: Qualidade (mais raro)</option>
           <option value="name">Ordenar: Nome</option>
           <option value="price">Ordenar: Preço (maior)</option>
           <option value="cat">Ordenar: Categoria</option>
           <option value="src">Ordenar: Nº de locais</option>
         </select>
       </div>
-      <div class="chips" id="ichips">
-        <button class="chip ${itemState.cat === "all" ? "on" : ""}" data-c="all">Todos<span class="n">${D.items.length}</span></button>
-        ${cats.map(c => `<button class="chip ${itemState.cat === c ? "on" : ""}" data-c="${c}">${D.categories[c]}<span class="n">${counts[c]}</span></button>`).join("")}
-      </div>
-      <div class="grid" id="igrid"></div>`;
+      <div class="with-side">
+        <aside class="sidebar" id="ichips">
+          <div class="side-title">Categorias</div>
+          <button class="chip ${itemState.cat === "all" ? "on" : ""}" data-c="all">Todos<span class="n">${D.items.length}</span></button>
+          ${cats.map(c => `<button class="chip ${itemState.cat === c ? "on" : ""}" data-c="${c}">${D.categories[c]}<span class="n">${counts[c]}</span></button>`).join("")}
+        </aside>
+        <div class="grid" id="igrid"></div>
+      </div>`;
     const $g = document.getElementById("igrid");
     const sortSel = document.getElementById("isort");
     sortSel.value = itemState.sort;
@@ -360,6 +369,8 @@
         (!q || norm(i.name.pt + " " + i.name.en + " " + i.id).includes(q)));
       const s = itemState.sort;
       list.sort((a, b) =>
+        s === "rarity" ? (RRANK[vals(b.id).rarity] || 0) - (RRANK[vals(a.id).rarity] || 0) ||
+          (vals(b.id).price ?? -1) - (vals(a.id).price ?? -1) || a.name.pt.localeCompare(b.name.pt) :
         s === "price" ? (vals(b.id).price ?? -1) - (vals(a.id).price ?? -1) :
         s === "cat" ? D.categories[a.cat].localeCompare(D.categories[b.cat]) || a.name.pt.localeCompare(b.name.pt) :
         s === "src" ? (SOURCES[b.id] || []).length - (SOURCES[a.id] || []).length :
@@ -392,7 +403,10 @@
     if (!i) return notFound();
     const v = vals(id);
     const F = FAN.items[id];
-    const srcs = SOURCES[id] || [];
+    const TAGS = { destaque: "⭐ Destaque", fixo: "📌 Ponto fixo", sorteio: "🎲 Sorteado" };
+    const where = D.buildings.map(b => [b.id, placeLoot(b.id)[id]]).filter(([, t]) => t);
+    const srcs = where.map(([b]) => b);
+    const hint = ITEM_HINTS[id];
     const used = USEDBY[id] || [], made = MADEBY[id] || [], upg = UPGRADEOF[id] || [];
     const benchOf = UPGRADEOF["__bench_" + id];
     const variants = D.items.filter(x => x.id !== id && x.name.pt === i.name.pt);
@@ -420,13 +434,15 @@
             <p class="muted" style="font-size:.85rem">Preço × (1 + bônus do nível de notoriedade). Bônus do jogo via ${SRC}; o bônus de área de venda não está incluído.</p></div>` : ""}
           <div class="panel">
             <h3>Onde encontrar</h3>
-            ${srcs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Local</th><th>Tipo</th><th class="num">Chance de drop</th></tr></thead><tbody>
-              ${srcs.map(b => `<tr><td><a href="#/local/${b}">${esc(bName(BLD[b]))}</a></td><td class="muted">${esc(BLD[b].size.pt)}</td>
+            ${srcs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Local</th><th>Tipo</th><th>Como sai</th><th class="num">Chance de drop</th></tr></thead><tbody>
+              ${where.map(([b, t]) => `<tr><td><a href="#/local/${b}">${esc(bName(BLD[b]))}</a></td><td class="muted">${esc(BLD[b].size.pt)}</td><td>${[...t].map(x => TAGS[x]).join(" · ")}</td>
               <td class="num">${v.chances[b] != null && v.chances[b] !== "" ? `<b class="hl">${v.chances[b]}%</b>` : '<span class="unknown">não divulgada</span>'}</td></tr>`).join("")}
               </tbody></table></div>
-              <p class="muted" style="font-size:.85rem">Locais: lista oficial de saque do mapa do jogo. A % de drop desses itens sorteados não está nos arquivos nem nas wikis de fãs (o servidor sorteia). Se você medir, preencha em <b>Editar valores</b>.</p>`
-            : (F && (F.points.length || F.buys.length || F.barters.length)) ? `<p class="muted">Não aparece no saque em destaque dos prédios, mas tem outras fontes abaixo.</p>`
-            : `<p class="muted">Não aparece no saque em destaque de nenhum prédio. Pode vir de cargas abertas, produção, recompensas ou outros meios.</p>`}
+              <p class="muted" style="font-size:.85rem">⭐ destaque do mapa do jogo · 📌 ponto fixo · 🎲 pode sair num ponto sorteado daquele tipo (pontos de saque: ${SRC}, mapa). A % de drop não é pública (o servidor sorteia). Se você medir, preencha em <b>Editar valores</b>.</p>`
+            : hint ? `<p style="margin:0 0 6px"><b>Pistas (não confirmadas):</b></p>
+              <ul class="hint-list">${hint.leads.map(([k, ref, txt]) => `<li>${k === "cargo" ? `<a href="#/carga/${ref}">${esc(CARGO[ref].name.pt)}</a>` :`<a href="#/local/${ref}">${esc(bName(BLD[ref]))}</a>`}<span class="muted"> ${esc(txt.replace(/^[^:]+:\s*/, ""))}</span></li>`).join("")}</ul>`
+            : (F && (F.points.length || F.buys.length || F.barters.length)) ? `<p class="muted">Não aparece no saque dos prédios, mas tem outras fontes abaixo.</p>`
+            : `<p class="muted">Não aparece no saque de nenhum prédio. Pode vir de cargas abertas, produção, recompensas ou outros meios.</p>`}
           </div>
           ${F && F.points.length ? `<div class="panel"><h3>Pontos de saque fixos</h3>
             <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Prédio</th><th>Região</th><th>Ponto</th><th class="num">Qtd. por ponto</th><th class="num">Nº de pontos</th><th class="num">Chance de aparecer</th></tr></thead><tbody>
@@ -456,16 +472,20 @@
   function viewBenches() {
     setNav("mesas");
     $app.innerHTML = `
-      <h1>Mesas e bancadas</h1>
-      <p class="muted">Mesas que você instala na sua base. Clique numa para ver o que ela faz, o que entra, o que sai, as melhorias e o passo a passo.</p>
-      <div class="panel">
-        <h3>Cadeia do laboratório</h3>
-        <div class="flow">
-          ${textNode("Reagentes", "🧪")}${arrow}<a class="node bench" href="#/mesa/reator-quimico">🛠️ Reator Químico</a>${arrow}
-          ${cargoLink("cargo_soft_crystal_1")}${arrow}<a class="node bench" href="#/mesa/freezer-industrial">🛠️ Freezer Industrial</a>${arrow}
-          ${cargoLink("cargo_hard_crystal_1")}${arrow}<a class="node bench" href="#/mesa/mesa-de-laboratorio">🛠️ Mesa de Laboratório</a>${arrow}${itemLink("lab_crystal_1")}
-        </div>
+      <h1>Negócios</h1>
+      <div class="guide-heroes">
+        <a class="guide-hero lab" href="#/laboratorio">
+          <img src="${ITEM.meth_lab_1 ? ITEM.meth_lab_1.icon : "img/cargo/cargo_hard_crystal_3.webp"}" alt="">
+          <div><div class="gh-kicker">Tutorial</div><div class="gh-title">Laboratório Químico</div>
+          <div class="gh-sub">Dos reagentes ao Saco de Pólvora: reator, freezer e mesa de laboratório, passo a passo.</div></div>
+        </a>
+        <a class="guide-hero farm" href="#/cultivo">
+          <img src="${ITEM.narco_farm_1 ? ITEM.narco_farm_1.icon : "img/cargo/cargo_bush_mature_1.webp"}" alt="">
+          <div><div class="gh-kicker">Tutorial</div><div class="gh-title">Sala de Cultivo</div>
+          <div class="gh-sub">Do Arbusto Florido ao Pacote de Colheita: mesa de cultivo e melhorias, passo a passo.</div></div>
+        </a>
       </div>
+      <h2>Todas as mesas</h2>
       <div class="grid wide">
         ${BENCHES.map(b => `<a class="card" href="#/mesa/${b.id}">
           <div class="thumb"><img src="${ITEM[b.icon].icon}" alt="" loading="lazy"></div>
@@ -482,7 +502,7 @@
     if (!b) return notFound();
     const outIds = (b.outputs || []).filter(o => o[0] !== "text").map(o => o[1]);
     $app.innerHTML = `
-      <div class="crumbs"><a href="#/mesas">Mesas</a> › ${esc(b.name)}</div>
+      <div class="crumbs"><a href="#/mesas">Negócios</a> › ${esc(b.name)}</div>
       <div class="bench-head">
         <img src="${ITEM[b.icon].icon}" alt="">
         <div><h1>${esc(b.name)}</h1><p class="muted" style="margin:0">${esc(b.kind)} · ${esc(b.place)}</p></div>
@@ -511,7 +531,7 @@
           const it = ITEM[o], cg = CARGO[o];
           const n = it ? it.name.pt : cg ? cg.name.pt : o;
           const href = it ? `#/item/${o}` : `#/carga/${o}`;
-          return `<tr><td>${it ? `<img src="${it.icon}" alt="">` : "📦"}</td><td><a href="${href}">${esc(n)}</a> <small class="muted">${esc(o)}</small></td>
+          return `<tr><td>${it ? `<img src="${it.icon}" alt="">` : cargoImg(o)}</td><td><a href="${href}">${esc(n)}</a> <small class="muted">${esc(o)}</small></td>
             <td>${rarityHtml(o)}</td><td class="num">${priceHtml(o)}</td><td><button class="btn small" data-edit="${o}">✏️</button></td></tr>`;
         }).join("")}
         </tbody></table></div>
@@ -532,17 +552,151 @@
     $app.querySelectorAll("[data-edit]").forEach(btn => btn.onclick = () => editValues(btn.dataset.edit, []));
   }
 
+  /* ---------------- tutorials: laboratório e cultivo ---------------- */
+  // purchase info from the fan source (Laptop / Mercado Clandestino)
+  const buyOf = id => { const f = FAN.items[id]; return f && f.buys && f.buys[0] ? f.buys[0] : null; };
+  const buyHtml = id => {
+    const b = buyOf(id);
+    if (!b) return "";
+    return `<span class="pill price">Compra: ${fmtMoney(b.price)}</span>${b.needsUnlock && b.unlockCash ? ` <span class="pill">Remessa: ${fmtMoney(b.unlockCash)}</span>` : ""}`;
+  };
+  const gImg = id => ITEM[id] ? `<a class="g-img" href="#/item/${id}" title="${esc(ITEM[id].name.pt)}"><img src="${ITEM[id].icon}" alt=""><span>${esc(ITEM[id].name.pt)}${ITEM[id].tier ? ` #${ITEM[id].tier}` : ""}</span></a>`
+    : CARGO[id] ? `<a class="g-img" href="#/carga/${id}" title="${esc(CARGO[id].name.pt)}">${cargoImg(id)}<span>${rname(id, esc(CARGO[id].name.pt) + ((/_(?:soft|hard)_crystal_(\d)$/.exec(id) || [])[1] ? " Q" + /_(\d)$/.exec(id)[1] : ""))}</span></a>` : "";
+  const gStep = (n, title, imgs, body, extra = "") => `
+    <div class="g-step">
+      <div class="g-num">${n}</div>
+      <div class="g-body">
+        <h3>${title}</h3>
+        ${imgs.length ? `<div class="g-imgs">${imgs.map(gImg).join("")}</div>` : ""}
+        <div class="g-text">${body}</div>
+        ${extra}
+      </div>
+    </div>`;
+  const qTable = (rows, cols) => `
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Qualidade</th>${cols.map(c => `<th class="num">${c}</th>`).join("")}</tr></thead><tbody>
+    ${rows.map(([q, ids]) => `<tr><td><b>${q}</b></td>${ids.map(id => `<td class="num">${id ? priceHtml(id) : '<span class="muted">—</span>'}</td>`).join("")}</tr>`).join("")}
+    </tbody></table></div>`;
+  const upTable = ids => `
+    <div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>Melhoria</th><th>Efeito</th><th class="num">Preço</th></tr></thead><tbody>
+    ${ids.filter(([id]) => ITEM[id]).map(([id, eff]) => `<tr><td><img src="${ITEM[id].icon}" alt=""></td><td><a href="#/item/${id}">${esc(ITEM[id].name.pt)}</a>${ITEM[id].tier ? ` <small class="muted">#${ITEM[id].tier}</small>` : ""}</td><td>${esc(eff)}</td><td class="num">${buyHtml(id) || '<span class="muted">—</span>'}</td></tr>`).join("")}
+    </tbody></table></div>`;
+
+  function viewLabGuide() {
+    setNav("mesas");
+    $app.innerHTML = `
+      <div class="crumbs"><a href="#/mesas">Negócios</a> › Laboratório Químico</div>
+      <div class="g-head lab">
+        ${ITEM.meth_lab_1 ? `<img src="${ITEM.meth_lab_1.icon}" alt="">` : ""}
+        <div><div class="gh-kicker">Tutorial</div><h1>Laboratório Químico</h1>
+        <p>Transforme reagentes em cristais e sacos de pólvora para vender. São 3 máquinas em sequência dentro do laboratório.</p></div>
+      </div>
+      <div class="panel">
+        <h2>Resumo da cadeia</h2>
+        <div class="flow">
+          ${cargoLink("cargo_reagents_2")}${arrow}<a class="node bench" href="#/mesa/reator-quimico">🛠️ Reator Químico</a>${arrow}
+          ${cargoLink("cargo_soft_crystal_1")}${arrow}<a class="node bench" href="#/mesa/freezer-industrial">🛠️ Freezer Industrial</a>${arrow}
+          ${cargoLink("cargo_hard_crystal_1")}${arrow}<a class="node bench" href="#/mesa/mesa-de-laboratorio">🛠️ Mesa de Laboratório</a>${arrow}${cargoLink("cargo_drugbag")}
+        </div>
+      </div>
+      <h2>Passo a passo</h2>
+      ${gStep(1, "Compre o Laboratório Químico", ["meth_lab_1"],
+        `<p>É uma garagem reformada que você coloca no terreno da sua base. Compre pelo <b>Laptop (Mercado Clandestino)</b>. Antes, desbloqueie a <b>Remessa</b> dele.</p>`,
+        `<div class="g-pills">${buyHtml("meth_lab_1")}</div>`)}
+      ${gStep(2, "Instale as 3 máquinas dentro dele", ["cargo_production_workbench_1", "cargo_charge_workbench_lab_freezer_1", "cargo_workbench_lab_table_1"],
+        `<p>Você precisa das três, uma para cada etapa: <b>Reator Químico</b> → <b>Freezer Industrial</b> → <b>Mesa de Laboratório</b>. Todas são compradas no Laptop.</p>`,
+        `<div class="g-pills"><span class="muted">Reator:</span> ${buyHtml("cargo_production_workbench_1")} <span class="muted">Freezer:</span> ${buyHtml("cargo_charge_workbench_lab_freezer_1")} <span class="muted">Mesa:</span> ${buyHtml("cargo_workbench_lab_table_1")}</div>`)}
+      ${gStep(3, "Consiga os reagentes", ["cargo_reagents_2"],
+        `<p>O reator funciona com <b>reagentes</b>. Os <b>Reagentes de Qualidade</b> aumentam a chance de sair cristal de qualidade maior (Q2 e Q3), que vale bem mais.</p>`)}
+      ${gStep(4, "Reator Químico: faça o Concentrado Cristalino", ["cargo_production_workbench_1", "cargo_soft_crystal_1", "cargo_soft_crystal_2", "cargo_soft_crystal_3"],
+        `<p>Despeje os reagentes no reator e espere. Ele sintetiza tudo num líquido: o <b>Concentrado Cristalino</b>, que sai em qualidade 1, 2 ou 3.</p>
+         <p>⚠️ Enquanto produz, sai <b>fumaça em cima do prédio</b> e outros jogadores conseguem ver que o laboratório está ativo.</p>
+         <p>⚠️ <b>Não mova o reator</b> no meio da produção: a carga cai no chão e o reagente que estava dentro é perdido.</p>`)}
+      ${gStep(5, "Freezer Industrial: congele em Cristais Sólidos", ["cargo_charge_workbench_lab_freezer_1", "cargo_hard_crystal_1", "cargo_hard_crystal_2", "cargo_hard_crystal_3"],
+        `<p>Pegue o Concentrado e coloque no freezer. Ele congela o líquido e vira <b>Cristais Sólidos</b>. A qualidade do concentrado (1, 2 ou 3) <b>continua a mesma</b> no cristal.</p>
+         <p>Os Cristais Sólidos <b>já podem ser vendidos</b> assim, ou seguir para a última etapa.</p>`)}
+      ${gStep(6, "Mesa de Laboratório: triture e embale", ["cargo_workbench_lab_table_1", "cargo_drugbag", "cargo_drugbag_1", "cargo_drugbag_2", "lab_crystal_1"],
+        `<p>Coloque os Cristais Sólidos na mesa. Ela tritura e embala tudo em pacotes de <b>Pó Cristalino</b> para venda no varejo. O resultado é o <b>Saco de Pólvora</b>: Comum (Q1), Pura (Q2) ou Perfeita (Q3).</p>
+         <p>💡 Ao pegar um Saco de Pólvora feito no laboratório, você enche o <b>Conjunto de Frascos de Laboratório</b> (item cumulativo). Cheio, ele vale muito mais.</p>`)}
+      ${gStep(7, "Venda", [],
+        `<p>Cargas (Cristais Sólidos, Sacos de Pólvora) vão para o <b>Contrabandista</b> no furgão. O valor sobe com a sua notoriedade e com o bônus do local de venda.</p>`)}
+      <div class="panel">
+        <h2>Quanto vale cada qualidade</h2>
+        ${qTable([["Q1", ["cargo_soft_crystal_1", "cargo_hard_crystal_1", "cargo_drugbag"]], ["Q2", ["cargo_soft_crystal_2", "cargo_hard_crystal_2", "cargo_drugbag_1"]], ["Q3", ["cargo_soft_crystal_3", "cargo_hard_crystal_3", "cargo_drugbag_2"]]],
+          ["Concentrado Cristalino", "Cristais Sólidos", "Saco de Pólvora"])}
+        <p class="muted" style="font-size:.85rem">Preço base de venda ao Contrabandista (notoriedade nível 1). Fonte: robrun.info.</p>
+      </div>
+      <div class="panel">
+        <h2>Melhorias</h2>
+        ${upTable([
+          ["cargo_production_workbench_2", "Reator Mk2: produz mais e mais rápido"],
+          ["cargo_production_workbench_3", "Reator Mk3: volume e velocidade máximos"],
+          ["cargo_production_workbench_upgrade_engine_1", "Reator: um pouco mais de chance de qualidade maior"],
+          ["cargo_production_workbench_upgrade_thermometer_1", "Reator: bastante chance de qualidade maior"],
+          ["cargo_production_workbench_upgrade_converter_1", "Reator: muita chance de qualidade maior"],
+          ["cargo_charge_workbench_upgrade_evaporator_1", "Freezer: congela mais rápido"],
+          ["cargo_charge_workbench_upgrade_refrigerant_1", "Freezer: congela mais rápido"],
+          ["cargo_open_workbench_upgrade_additional_slot_2", "Mesa de Laboratório: +1 espaço para processar mais cristais"]
+        ])}
+      </div>`;
+  }
+
+  function viewFarmGuide() {
+    setNav("mesas");
+    const boosts = [["uv_lamp_1", "Acelera o crescimento"], ["uv_lamp_2", "Acelera o crescimento"], ["uv_lamp_3", "Acelera o crescimento"],
+      ["water_pump_1", "Acelera o crescimento"], ["water_pump_2", "Acelera o crescimento"], ["water_pump_3", "Acelera o crescimento"], ["fan_1", "Acelera o crescimento"]];
+    $app.innerHTML = `
+      <div class="crumbs"><a href="#/mesas">Negócios</a> › Sala de Cultivo</div>
+      <div class="g-head farm">
+        ${ITEM.narco_farm_1 ? `<img src="${ITEM.narco_farm_1.icon}" alt="">` : ""}
+        <div><div class="gh-kicker">Tutorial</div><h1>Sala de Cultivo</h1>
+        <p>Plante arbustos raros, espere crescer e colha os Pacotes de Colheita. Quanto melhor o equipamento, mais rápido a planta cresce.</p></div>
+      </div>
+      <div class="panel">
+        <h2>Resumo da cadeia</h2>
+        <div class="flow">
+          ${cargoLink("cargo_bush_growing_1")}${arrow}<a class="node bench" href="#/mesa/mesa-de-cultivo">🛠️ Mesa de Cultivo</a>${arrow}
+          ${cargoLink("cargo_bush_mature_1")}${arrow}${itemLink("bush_drugs_1")}
+        </div>
+      </div>
+      <h2>Passo a passo</h2>
+      ${gStep(1, "Compre a Sala de Cultivo", ["narco_farm_1"],
+        `<p>Uma pequena fazenda escondida que você coloca no terreno da sua base. Compre pelo <b>Laptop (Mercado Clandestino)</b>. Antes, desbloqueie a <b>Remessa</b> dela.</p>`,
+        `<div class="g-pills">${buyHtml("narco_farm_1")}</div>`)}
+      ${gStep(2, "Instale a Mesa de Cultivo", ["cargo_charge_workbench_garden_bed"],
+        `<p>A mesa reforçada onde a planta cresce. Também é comprada no Laptop e vai dentro da Sala de Cultivo.</p>`,
+        `<div class="g-pills">${buyHtml("cargo_charge_workbench_garden_bed")}</div>`)}
+      ${gStep(3, "Coloque os equipamentos na mesa", ["uv_lamp_3", "water_pump_2", "fan_1"],
+        `<p>A <b>Lâmpada UV</b>, a <b>Bomba d'Água</b> e o <b>Ventilador</b> encaixam na mesa e <b>aceleram o crescimento</b>. Não são obrigatórios, mas sem eles a planta demora bem mais.</p>`)}
+      ${gStep(4, "Plante o Arbusto Florido", ["cargo_bush_growing_1"],
+        `<p>Coloque o <b>Arbusto Florido</b> na Mesa de Cultivo. Ele vem em qualidade 1, 2 ou 3. Quanto maior a qualidade, mais vale a colheita.</p>`)}
+      ${gStep(5, "Espere crescer", ["cargo_bush_mature_1"],
+        `<p>Quando o ciclo termina, a planta vira um <b>Arbusto Maduro</b>, pronto para a colheita. Se ainda não terminou, a mesa mostra “Nada para coletar”.</p>`)}
+      ${gStep(6, "Colha", ["bush_drugs_1", "bush_drugs_2", "bush_drugs_3"],
+        `<p>Colha o Arbusto Maduro e pegue os <b>Pacotes de Colheita</b>, que também saem em qualidade 1, 2 ou 3.</p>`)}
+      ${gStep(7, "Venda", [],
+        `<p>O produto da colheita é vendido ao <b>Receptador</b>. Vender no atacado (vários de uma vez) dá muito mais lucro do que vender aos poucos.</p>`)}
+      <div class="panel">
+        <h2>Quanto vale cada qualidade</h2>
+        ${qTable([["Q1", ["bush_drugs_1"]], ["Q2", ["bush_drugs_2"]], ["Q3", ["bush_drugs_3"]]], ["Pacote de Colheita (cada)"])}
+        <p class="muted" style="font-size:.85rem">Preço de venda de referência. Fonte: robrun.info.</p>
+      </div>
+      <div class="panel">
+        <h2>Equipamentos da mesa</h2>
+        ${upTable(boosts)}
+      </div>`;
+  }
+
   function viewPlaces() {
     setNav("locais");
     const list = D.buildings.filter(b => b.rewards.length).sort((a, b) => a.name.pt.localeCompare(b.name.pt));
     const other = D.buildings.filter(b => !b.rewards.length);
     $app.innerHTML = `
       <h1>Locais</h1>
-      <p class="muted">Prédios de Looty Bay que podem ser roubados, com o saque em destaque que o jogo mostra no mapa.</p>
+      <p class="muted">Prédios de Looty Bay que podem ser roubados. Clique num local para ver todos os itens que podem sair nele.</p>
       <div class="grid wide">
         ${list.map(b => `<a class="card" href="#/local/${b.id}">
           <div class="title">📍 ${esc(bName(b))}</div>
-          <div class="sub">${esc(b.size.pt)}</div>
+          <div class="sub">${esc(b.size.pt)} · ${Object.keys(placeLoot(b.id)).length} itens possíveis</div>
           <div class="flow">${b.rewards.map(r => ITEM[r] ? `<img src="${ITEM[r].icon}" alt="${esc(ITEM[r].name.pt)}" title="${esc(ITEM[r].name.pt)}" style="width:56px;height:40px;object-fit:contain">` : "").join("")}</div>
         </a>`).join("")}
       </div>
@@ -550,47 +704,179 @@
       <div class="grid wide">${other.map(b => `<a class="card" href="#/local/${b.id}"><div class="title">${esc(bName(b))}</div><div class="sub">${esc(b.size.pt)}</div></a>`).join("")}</div>`;
   }
 
+  /* ---------- full loot per place (robrun.info map points, see loot-data.js) ---------- */
+  const LOOT = (window.RR_LOOT && window.RR_LOOT.places) || {};
+  const fam = (...prefixes) => D.items.filter(i => prefixes.some(p => new RegExp("^" + p + "(_m?\\d+)?$").test(i.id))).map(i => i.id);
+  const W_SMG = ["jp7", "cb45", "mc10", "pdw90", "apscalar"], W_RIFLE = ["rc556", "kl545", "drm14", "starh", "srreaper", "lmg"],
+    W_SHOT = ["harris500", "ordr12", "tag12k"], W_PISTOL = ["dp9", "lbr44", "vulture50"], W_ALL = [...W_SMG, ...W_RIFLE, ...W_SHOT, ...W_PISTOL];
+  const PICS = ["picture_tube", "picture_fake"], JEWEL = ["earrings", "ring", "necklace", "watch"], GREN = ["frag_grenade", "gas_grenade", "flash_grenade", "smoke_grenade"];
+  // random loot group -> [label, item families, rarities allowed (optional)]
+  const LOOT_GROUPS = {
+    Picture: ["Pinturas", PICS], PictureLow: ["Pinturas (grupo básico)", PICS], PictureRoom: ["Pinturas (sala trancada)", PICS],
+    Alcohol: ["Álcool", ["alcohol"]], Alcohol_room: ["Álcool (sala trancada)", ["alcohol"]], Alcohol_roomgolden: ["Álcool (sala dourada)", ["alcohol"]],
+    BundleNarco: ["Drogas", ["drugs"]], Bundle: ["Pacotes", []],
+    JewelryBust: ["Joias no expositor", JEWEL], Jewelry1x1: ["Joias", JEWEL],
+    Phones: ["Celulares", ["phone"]], Phones_stand: ["Celulares na vitrine", ["phone"]], Phones_roomgolden: ["Celulares (sala dourada)", ["phone"]],
+    Laptops: ["Laptops", ["laptop"]], Laptops_roomgolden: ["Laptops (sala dourada)", ["laptop"]],
+    HeadPhones: ["Fones de ouvido", ["headphones"]], GameConsoles: ["Consoles", ["console"]], Toaster: ["Torradeiras", ["toaster"]], Hairdryer: ["Secador de cabelo", ["hairdryer"]],
+    Cigar: ["Charutos", ["cigar"]], Cigar_room: ["Charutos (sala trancada)", ["cigar"]], Cigar_roomgolden: ["Charutos (sala dourada)", ["cigar"]],
+    Antique: ["Antiguidades", ["antique"]], Antique_goldroom: ["Antiguidades (sala dourada)", ["antique"]],
+    Medicine: ["Remédios", ["painkiller", "injector", "afak"]], Cash: ["Dinheiro", ["cash"]],
+    Vest: ["Coletes", ["vest1", "vest2", "vest3", "vest4", "vest5"]], VestPolice: ["Coletes da polícia", ["vest1", "vest2", "vest3", "vest4", "vest5"]],
+    Grenades: ["Granadas", GREN], Grenades_arsenal: ["Granadas do arsenal", GREN],
+    // a single loose weapon in ordinary shops/houses: the game does not say which model, so it is not expanded into every weapon
+    WeaponsOpen: ["Arma solta", [], null, "Uma arma qualquer (o jogo não informa o modelo)"], WeaponsOpenLow: ["Arma solta (grupo básico)", [], null, "Uma arma qualquer (o jogo não informa o modelo)"],
+    WeaponsGreen: ["Armas (verdes)", W_ALL, ["uncommon"]],
+    WeaponsPoliceDepartment: ["Armas da delegacia", W_ALL], WeaponsPoliceDeaprtmentSide: ["Armas da delegacia (área lateral)", W_ALL],
+    WeaponsLegendaryPoliceDepartment: ["Armas lendárias da delegacia", W_ALL, ["legendary"]],
+    WeaponsArsenalEpic: ["Armas épicas do arsenal", W_ALL, ["epic"]], WeaponsArsenalPistol: ["Pistolas do arsenal", W_PISTOL],
+    WeaponsKeyRoomSmgEpic: ["Submetralhadoras épicas (sala trancada)", W_SMG, ["epic"]], WeaponsKeyRoomSmgGreen: ["Submetralhadoras verdes (sala trancada)", W_SMG, ["uncommon"]],
+    WeaponsKeyRoomAssaultGreenEpic: ["Fuzis verdes/épicos (sala trancada)", W_RIFLE, ["uncommon", "epic"]], WeaponsKeyRoomAssaultGreen: ["Fuzis verdes (sala trancada)", W_RIFLE, ["uncommon"]],
+    WeaponsKeyRoomShotgunEpic: ["Espingardas épicas (sala trancada)", W_SHOT, ["epic"]], WeaponsKeyRoomShotgunGreen: ["Espingardas verdes (sala trancada)", W_SHOT, ["uncommon"]],
+    WeaponsKeyRoomPistol: ["Pistolas (sala trancada)", W_PISTOL], WeaponRelic: ["Arma relíquia", []]
+  };
+  const groupItems = g => {
+    const spec = LOOT_GROUPS[g];
+    if (!spec) return [];
+    const ids = fam(...spec[1]);
+    const byRar = spec[2] ? ids.filter(i => spec[2].includes(vals(i).rarity)) : ids;
+    return byRar.length ? byRar : ids;
+  };
+  const OTHER_PT = [["Cabinet", "Armário / contêiner"], ["Safe", "Cofre"], ["Door with a key", "Porta com chave"], ["Computer", "Computador (hack com USB)"],
+    ["Bank deposit box", "Cofre de depósito do banco"], ["Fridge", "Geladeira"], ["Dresser", "Cômoda"], ["Gear container", "Contêiner de equipamento"],
+    ["Office desk", "Mesa de escritório"], ["Built-in safe", "Cofre embutido"], ["Bank safe", "Cofre do banco"], ["Vault door", "Porta do cofre-forte"],
+    ["ATM", "Caixa eletrônico"], ["Search node", "Ponto de busca"], ["Cargo container", "Contêiner de carga"], ["Cash node", "Dinheiro"]];
+  const otherPt = n => (OTHER_PT.find(([k]) => n.startsWith(k)) || [, n])[1];
+  // every item that can come out of a place: featured + fixed points + random groups
+  function placeLoot(id) {
+    const b = BLD[id], L = LOOT[id], out = {};
+    const add = (iid, tag) => { if (!ITEM[iid]) return; (out[iid] = out[iid] || new Set()).add(tag); };
+    (b ? b.rewards : []).forEach(r => add(r, "destaque"));
+    if (L) {
+      L.confirmed.forEach(([iid]) => add(iid, "fixo"));
+      L.groups.forEach(([g]) => groupItems(g).forEach(iid => add(iid, "sorteio")));
+    }
+    return out;
+  }
+
   function viewPlace(id) {
     setNav("locais");
     const b = BLD[id];
     if (!b) return notFound();
+    const L = LOOT[id];
+    const all = placeLoot(id);
+    const ids = Object.keys(all).sort((x, y) => (RRANK[vals(y).rarity] || 0) - (RRANK[vals(x).rarity] || 0) ||
+      (vals(y).price ?? -1) - (vals(x).price ?? -1) || ITEM[x].name.pt.localeCompare(ITEM[y].name.pt));
+    const TAGS = { destaque: "⭐ Destaque do mapa", fixo: "📌 Ponto fixo", sorteio: "🎲 Sorteado" };
     $app.innerHTML = `
       <div class="crumbs"><a href="#/locais">Locais</a> › ${esc(bName(b))}</div>
       <h1>📍 ${esc(bName(b))}</h1>
-      <p class="muted">${esc(b.size.pt)} · <code>${esc(b.id)}</code></p>
+      <p class="muted">${esc(b.size.pt)}${L ? ` · ${L.points} pontos de saque` : ""}</p>
       ${b.desc.pt ? `<div class="panel"><p class="desc">${rich(b.desc.pt)}</p></div>` : ""}
-      ${b.rewards.length ? `<div class="panel">
-        <h2>Saque em destaque</h2>
-        <div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>Item</th><th>Raridade</th><th class="num">Venda ao NPC</th><th class="num">Chance aqui</th><th></th></tr></thead><tbody>
-        ${b.rewards.map(r => {
-          const it = ITEM[r]; const v = vals(r);
-          return `<tr><td>${it ? `<img src="${it.icon}" alt="">` : ""}</td>
-            <td>${it ? `<a href="#/item/${r}">${esc(it.name.pt)}</a>` : `<span class="muted">${esc(r)}</span>`}</td>
-            <td>${rarityHtml(r)}</td><td class="num">${priceHtml(r)}</td>
-            <td class="num">${v.chances[id] != null && v.chances[id] !== "" ? `<b class="hl">${v.chances[id]}%</b>` : '<span class="unknown">—</span>'}</td>
-            <td>${it ? `<button class="btn small" data-edit="${r}">✏️</button>` : ""}</td></tr>`;
-        }).join("")}
-        </tbody></table></div>
-        <p class="muted" style="font-size:.85rem">Lista oficial do mapa do jogo. O prédio pode ter mais saque além desses. Chances e preços são preenchidos pela comunidade.</p>
-      </div>` : `<div class="panel"><p class="muted">Este local não tem saque em destaque (é uma área social, de base ou de serviço).</p></div>`}`;
-    $app.querySelectorAll("[data-edit]").forEach(btn => btn.onclick = () => editValues(btn.dataset.edit, SOURCES[btn.dataset.edit] || []));
+      ${ids.length ? `
+        <h2>Todos os itens que podem sair aqui <span class="muted">(${ids.length})</span></h2>
+        <div class="loot-legend"><span>⭐ Destaque do mapa</span><span>📌 Ponto fixo (sempre o mesmo item)</span><span>🎲 Sorteado em um ponto aleatório</span></div>
+        <div class="grid">
+          ${ids.map(i => { const it = ITEM[i], r = vals(i).rarity; return `<a class="card ${r ? "r-" + r : ""}" href="#/item/${i}">
+            <div class="thumb"><img src="${it.icon}" alt="" loading="lazy"></div>
+            <div class="title">${esc(it.name.pt)}${it.tier ? ` <small class="muted">#${it.tier}</small>` : ""}</div>
+            <div class="sub">${[...all[i]].map(t => TAGS[t]).join(" · ")}</div>
+            <div class="meta">${priceHtml(i)}${r ? rarityHtml(i) : ""}</div>
+          </a>`; }).join("")}
+        </div>` : `<div class="panel"><p class="muted">Este local não tem saque (é uma área social, de base ou de serviço).</p></div>`}
+      ${L ? `<div class="panel" style="margin-top:22px">
+        <h2>Pontos de saque</h2>
+        ${L.confirmed.length ? `<h3>📌 Pontos fixos</h3>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th>Item</th><th class="num">Pontos</th><th class="num">Quantidade por ponto</th></tr></thead><tbody>
+          ${L.confirmed.filter(([i]) => ITEM[i]).map(([i, n, mn, mx]) => `<tr><td><img src="${ITEM[i].icon}" alt=""></td><td><a href="#/item/${i}">${esc(ITEM[i].name.pt)}</a></td><td class="num">${n}</td><td class="num">${mn === mx ? mn : mn + "–" + mx}</td></tr>`).join("")}
+          </tbody></table></div>` : ""}
+        ${L.groups.length ? `<h3>🎲 Pontos sorteados</h3>
+          <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tipo de saque</th><th class="num">Pontos</th><th>Pode sair</th></tr></thead><tbody>
+          ${L.groups.map(([g, n]) => { const gi = groupItems(g); return `<tr><td>${esc((LOOT_GROUPS[g] || [g])[0])}</td><td class="num">${n}</td>
+            <td><div class="mini-icons">${gi.length ? gi.map(i => `<a href="#/item/${i}" title="${esc(ITEM[i].name.pt)}"><img src="${ITEM[i].icon}" alt=""></a>`).join("") : `<span class="muted">${esc((LOOT_GROUPS[g] || [])[3] || "Conteúdo desconhecido")}</span>`}</div></td></tr>`; }).join("")}
+          </tbody></table></div>` : ""}
+        ${L.other.length ? `<h3>🔒 Outros pontos</h3>
+          <div class="chips">${L.other.map(([n, c]) => `<span class="chip">${esc(otherPt(n))}<span class="n">${c}</span></span>`).join("")}</div>
+          <p class="muted" style="font-size:.85rem">Armários, cofres, gavetas e afins: o conteúdo é sorteado pelo servidor e não aparece nos arquivos do jogo.</p>` : ""}
+        <p class="muted" style="font-size:.85rem">Pontos de saque: <a href="https://robrun.info/en/map/" target="_blank" rel="noopener">mapa do robrun.info</a>. O jogo sorteia o item de cada ponto aleatório no servidor, então a lista “Pode sair” mostra os itens daquele tipo, não a chance exata.</p>
+      </div>` : ""}`;
   }
 
+  // cargo categories (the game has none, so they are grouped by hand)
+  const CARGO_CATS = [
+    ["caixotes", "Caixotes de Saque", ["cargo_minimarket", "cargo_electronics", "cargo_equip", "cargo_jewelry", "cargo_medicine", "cargo_carparts", "cargo_weapon_box_1", "cargo_box"]],
+    ["valores", "Cofres, Malas e Valores", ["cargo_safe", "cargo_safe_legendary", "cargo_statue", "cargo_suitcase", "cargo_suitcase_2", "cargo_suitcase_3", "cargo_cashbag"]],
+    ["contrabando", "Contrabando", ["cargo_alcohol_grade_1", "cargo_alcohol_grade_2", "cargo_alcohol_grade_3", "cargo_contraband_bag_1", "cargo_contraband_bag_2", "cargo_manifest_1_cumulative"]],
+    ["lab", "Laboratório", ["cargo_drugbag", "cargo_drugbag_1", "cargo_drugbag_2", "cargo_hard_crystal_1", "cargo_hard_crystal_2", "cargo_hard_crystal_3", "cargo_soft_crystal_1", "cargo_soft_crystal_2", "cargo_soft_crystal_3", "cargo_reagents_2"]],
+    ["cultivo", "Cultivo", ["cargo_bush_growing_1", "cargo_bush_mature_1"]],
+    ["colecoes", "Coleções", ["collection_reward_cargo", "collection_reward_cargo_2", "collection_reward_cargo_3", "collection_reward_cargo_4"]]
+  ];
+  const CARGO_CAT = {};
+  CARGO_CATS.forEach(([k, , ids]) => ids.forEach(id => (CARGO_CAT[id] = k)));
+  const cargoCat = id => CARGO_CAT[id] || "outros";
+  const rname = (id, text) => { const r = vals(id).rarity; return `<span class="rname ${r ? "r-" + r : ""}">${text}</span>`; };
+
+  let cargoState = { q: "", cat: "all", sort: "rarity" };
   function viewCargos() {
     setNav("cargas");
+    const counts = {};
+    D.cargo.forEach(c => counts[cargoCat(c.id)] = (counts[cargoCat(c.id)] || 0) + 1);
+    const cats = [...CARGO_CATS.map(([k, n]) => [k, n]), ["outros", "Outros"]].filter(([k]) => counts[k]);
     $app.innerHTML = `
       <h1>Cargas</h1>
-      <p class="muted">Cargas são objetos grandes que você carrega nas mãos ou no porta-malas. Algumas são abertas em mesas, outras são vendidas direto ao Contrabandista.</p>
-      <div class="note">${rich(loc("hints_stolen_cargo_description"))}</div>
-      <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Carga</th><th>Descrição</th><th>Mesa</th><th class="num">Venda</th></tr></thead><tbody>
-      ${D.cargo.slice().sort((a, b) => a.name.pt.localeCompare(b.name.pt)).map(c => {
-        const ub = [...(USEDBY[c.id] || []), ...(MADEBY[c.id] || [])];
-        return `<tr><td><a href="#/carga/${c.id}">📦 ${esc(c.name.pt)}</a><br><small class="muted">${esc(c.id)}</small></td>
-          <td>${rich(c.desc.pt)}</td>
-          <td>${[...new Set(ub)].map(b => `<a href="#/mesa/${b}">${esc(BENCH[b].name)}</a>`).join("<br>") || '<span class="muted">—</span>'}</td>
-          <td class="num">${priceHtml(c.id)}</td></tr>`;
-      }).join("")}
-      </tbody></table></div>`;
+      <div class="toolbar">
+        <input id="cq" type="search" placeholder="Filtrar por nome…" value="${esc(cargoState.q)}">
+        <select id="csort">
+          <option value="rarity">Ordenar: Qualidade (mais raro)</option>
+          <option value="name">Ordenar: Nome</option>
+          <option value="price">Ordenar: Preço (maior)</option>
+          <option value="cat">Ordenar: Categoria</option>
+        </select>
+      </div>
+      <div class="with-side">
+        <aside class="sidebar" id="cchips">
+          <div class="side-title">Categorias</div>
+          <button class="chip ${cargoState.cat === "all" ? "on" : ""}" data-c="all">Todas<span class="n">${D.cargo.length}</span></button>
+          ${cats.map(([k, n]) => `<button class="chip ${cargoState.cat === k ? "on" : ""}" data-c="${k}">${n}<span class="n">${counts[k]}</span></button>`).join("")}
+        </aside>
+        <div class="grid" id="cgrid"></div>
+      </div>`;
+    const CATNAME = Object.fromEntries(cats);
+    const CATIDX = Object.fromEntries(cats.map(([k], i) => [k, i]));
+    const sortSel = document.getElementById("csort");
+    sortSel.value = cargoState.sort;
+    const draw = () => {
+      const q = norm(cargoState.q);
+      const list = D.cargo.filter(c => (cargoState.cat === "all" || cargoCat(c.id) === cargoState.cat) &&
+        (!q || norm(c.name.pt + " " + c.name.en + " " + c.id).includes(q)));
+      const s = cargoState.sort;
+      const byRarity = (a, b) => (RRANK[vals(b.id).rarity] || 0) - (RRANK[vals(a.id).rarity] || 0);
+      const byPrice = (a, b) => (vals(b.id).price ?? -1) - (vals(a.id).price ?? -1);
+      const byName = (a, b) => a.name.pt.localeCompare(b.name.pt);
+      list.sort((a, b) =>
+        s === "name" ? byName(a, b) :
+        s === "price" ? byPrice(a, b) || byName(a, b) :
+        s === "cat" ? CATIDX[cargoCat(a.id)] - CATIDX[cargoCat(b.id)] || byRarity(a, b) || byPrice(a, b) || byName(a, b) :
+        byRarity(a, b) || byPrice(a, b) || byName(a, b));
+      document.getElementById("cgrid").innerHTML = list.map(c => {
+        const r = vals(c.id).rarity;
+        return `<a class="card ${r ? "r-" + r : ""}" href="#/carga/${c.id}">
+          <div class="thumb">${CARGO_NO_IMG.has(c.id) ? `<span class="thumb-ico">📦</span>` : `<img src="img/cargo/${c.id}.webp" alt="" loading="lazy">`}</div>
+          <div class="title">${rname(c.id, esc(c.name.pt))}</div>
+          <div class="sub">${esc(CATNAME[cargoCat(c.id)] || "")}</div>
+          <div class="meta">${priceHtml(c.id)}${r ? rarityHtml(c.id) : ""}</div>
+        </a>`;
+      }).join("") || `<p class="muted">Nenhuma carga encontrada.</p>`;
+    };
+    document.getElementById("cq").oninput = e => { cargoState.q = e.target.value; draw(); };
+    sortSel.onchange = e => { cargoState.sort = e.target.value; draw(); };
+    document.getElementById("cchips").onclick = e => {
+      const b = e.target.closest(".chip"); if (!b) return;
+      cargoState.cat = b.dataset.c;
+      document.querySelectorAll("#cchips .chip").forEach(x => x.classList.toggle("on", x === b));
+      draw();
+    };
+    draw();
   }
 
   function viewCargo(id) {
@@ -601,9 +887,9 @@
     $app.innerHTML = `
       <div class="crumbs"><a href="#/cargas">Cargas</a> › ${esc(c.name.pt)}</div>
       <div class="detail">
-        <div class="art"><span class="big-ico">📦</span></div>
+        <div class="art">${CARGO_NO_IMG.has(id) ? `<span class="big-ico">📦</span>` : `<img src="img/cargo/${id}.webp" alt="${esc(c.name.pt)}">`}</div>
         <div>
-          <h1>${esc(c.name.pt)}</h1><p class="en">${esc(c.name.en)}</p>
+          <h1>${rname(id, esc(c.name.pt))}</h1><p class="en">${esc(c.name.en)}</p>
           <div class="panel"><p class="desc">${rich(c.desc.pt) || '<span class="unknown">Sem descrição.</span>'}</p></div>
           <div class="panel">
             <div class="row" style="justify-content:space-between"><h3 style="margin:0">Informações</h3><button class="btn small" id="btnEdit">✏️ Editar valores</button></div>
@@ -748,6 +1034,7 @@
     const a = arg ? decodeURIComponent(arg) : "";
     ({
       "": viewHome, itens: viewItems, item: () => viewItem(a), mesas: viewBenches, mesa: () => viewBench(a),
+      laboratorio: viewLabGuide, cultivo: viewFarmGuide,
       locais: viewPlaces, local: () => viewPlace(a), cargas: viewCargos, carga: () => viewCargo(a),
       npcs: viewNpcs, guia: viewGuide
     }[page] || notFound)();
