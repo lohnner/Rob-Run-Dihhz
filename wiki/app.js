@@ -774,16 +774,30 @@
       </div>`;
   }
 
+  /* ---------- city map (M in game): background + building icons, see map-data.js ---------- */
+  const MAP = window.RR_MAP || { places: {} };
+  const mapIco = id => MAP.places[id] ? `<img class="place-ico" src="img/map/${MAP.places[id][2]}.webp" alt="">` : "";
+  function cityMap(active) {
+    if (!MAP.img) return "";
+    const pins = Object.entries(MAP.places).filter(([id]) => BLD[id]).map(([id, [x, y, ico]]) =>
+      `<a class="map-pin${active ? (id === active ? " on" : " dim") : ""}" href="#/local/${id}" style="left:${x}%;top:${y}%">
+        <img src="img/map/${ico}.webp" alt=""><span class="map-tip">${esc(bName(BLD[id]))}</span></a>`).join("");
+    return `<div class="city-map${active ? " small" : ""}"><div class="city-map-in" style="padding-top:${MAP.ratio * 100}%">
+      <img class="city-map-bg" src="${MAP.img}" alt="Mapa de Looty Bay">${pins}</div></div>
+      <p class="muted map-src">Mapa de Looty Bay. Imagem e posições: ${SRC} (mapa interativo); ícones do jogo.</p>`;
+  }
+
   function viewPlaces() {
     setNav("locais");
     const list = D.buildings.filter(b => b.rewards.length).sort((a, b) => a.name.pt.localeCompare(b.name.pt));
     const other = D.buildings.filter(b => !b.rewards.length);
     $app.innerHTML = `
       <h1>Locais</h1>
-      <p class="muted">Prédios de Looty Bay que podem ser roubados. Clique num local para ver todos os itens que podem sair nele.</p>
+      <p class="muted">Prédios de Looty Bay que podem ser roubados. Clique num local, no mapa ou na lista, para ver todos os itens que podem sair nele.</p>
+      ${cityMap()}
       <div class="grid wide">
         ${list.map(b => `<a class="card" href="#/local/${b.id}">
-          <div class="title">📍 ${esc(bName(b))}</div>
+          <div class="title">${mapIco(b.id) || "📍"} ${esc(bName(b))}</div>
           <div class="sub">${esc(b.size.pt)} · ${Object.keys(placeLoot(b.id)).length} itens possíveis</div>
           <div class="flow">${b.rewards.map(r => ITEM[r] ? `<img src="${ITEM[r].icon}" alt="${esc(ITEM[r].name.pt)}" title="${esc(ITEM[r].name.pt)}" style="width:56px;height:40px;object-fit:contain">` : "").join("")}</div>
         </a>`).join("")}
@@ -858,10 +872,9 @@
     const TAGS = { destaque: "⭐ Destaque do mapa", fixo: "📌 Ponto fixo", sorteio: "🎲 Sorteado" };
     $app.innerHTML = `
       <div class="crumbs"><a href="#/locais">Locais</a> › ${esc(bName(b))}</div>
-      <h1>📍 ${esc(bName(b))}</h1>
+      <h1>${mapIco(id) || "📍"} ${esc(bName(b))}</h1>
       <p class="muted">${esc(b.size.pt)}${L ? ` · ${L.points} pontos de saque` : ""}</p>
-      ${b.desc.pt ? `<div class="panel"><p class="desc">${rich(b.desc.pt)}</p></div>` : ""}
-      ${ids.length ? `
+      ${b.desc.pt ? `<div class="panel"><p class="desc">${rich(b.desc.pt)}</p></div>` : ""}      ${ids.length ? `
         <h2>Todos os itens que podem sair aqui <span class="muted">(${ids.length})</span></h2>
         <div class="loot-legend"><span>⭐ Destaque do mapa</span><span>📌 Ponto fixo (sempre o mesmo item)</span><span>🎲 Sorteado em um ponto aleatório</span></div>
         <div class="grid">
