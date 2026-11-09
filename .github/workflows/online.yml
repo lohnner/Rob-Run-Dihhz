@@ -7,6 +7,8 @@ name: Jogadores online
 on:
   schedule:
     - cron: "*/10 * * * *"
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
