@@ -397,6 +397,52 @@
     draw();
   }
 
+  /* ---------- weapon stats + how to get (robrun.info item pages, see weapon-data.js) ---------- */
+  const WPN = window.RR_WEAPONS || {};
+  const W_LABEL = { dmg: "Dano", head: "Tiro na cabeça", rof: "Cadência", mag: "Pente", range: "Alcance de dano total",
+    reload: "Recarga", aim: "Mira", draw: "Sacar", mode: "Modo de tiro" };
+  const W_UNIT = { "rounds/min": "tiros/min", rounds: "balas", s: "s" };
+  const ptNum = s => String(s).replace(/(\d)\.(\d)/g, "$1,$2");
+  function weaponPanels(id) {
+    const w = WPN[id];
+    if (!w) return "";
+    const stat = ([k, v, u, ex, bar, top]) => `
+      <div class="wst${top ? " top" : ""}">
+        <div class="wst-lbl">${W_LABEL[k] || k}${top ? '<em>melhor</em>' : ""}</div>
+        <div class="wst-val">${k === "mode" ? (v === "Auto" ? "Automático" : v === "Single" ? "Tiro único" : esc(v)) : esc(ptNum(v))}${u ? `<small>${W_UNIT[u] || esc(u)}</small>` : ""}</div>
+        ${ex ? `<div class="wst-ex">${esc(ptNum(ex.replace(/^fast/, "rápida")))}</div>` : ""}
+        ${bar != null ? `<div class="wst-bar" title="${Math.round(bar)}% da melhor arma"><i style="width:${Math.max(2, bar)}%"></i></div>` : ""}
+      </div>`;
+    const place = s => s.place && BLD[s.place] ? `<a href="#/local/${s.place}">${mapIco(s.place)} ${esc(bName(BLD[s.place]))}</a>` : esc(s.where);
+    const BUYV = { "Trade Laptop": "Laptop (Mercado Clandestino)", "Arms Dealer": "Vendedor de Armas" };
+    const buyTxt = v => v.replace("no conditions", "sem condições").replace(/^tier/, "tier").replace("Citizens only", "só civis").replace("price", "preço");
+    const blocks = w.get.map(b => {
+      if (b.kind === "need") return `<h3 class="w-h">🔐 O que você precisa para pegar</h3>
+        ${b.spots.map(s => `<div class="w-spot"><span class="w-where">${place(s)}${s.point ? ` <small class="muted">· ${esc(otherPt(s.point))}</small>` : ""}</span>
+          <span class="w-need">${s.need.map(n => itemLink(n)).join("")}</span></div>`).join("")}`;
+      if (b.kind === "found") return `<h3 class="w-h">📍 Onde é encontrada</h3>
+        ${b.spots.map(s => `<div class="w-spot"><span class="w-where">${place(s)}</span>${s.count ? `<b class="w-cnt">× ${s.count}</b>` : ""}</div>`).join("")}`;
+      if (b.kind === "may") return `<h3 class="w-h">🎲 Pode aparecer em</h3>
+        ${b.spots.map(s => `<div class="w-spot"><span class="w-where">${place(s)}</span></div>`).join("")}`;
+      if (b.kind === "tree") return `<h3 class="w-h">🌳 Árvore do Larry · Armas</h3>
+        <p class="muted" style="margin:0 0 8px">Primeiro é pesquisada na Árvore do Larry; depois passa a ser vendida no Laptop.</p>
+        <dl class="kv">${b.rows.map(([k, v]) => `<dt>${k === "Research price" ? "Preço da pesquisa" : k === "Vendor tier" ? "Tier do vendedor" : esc(k)}</dt><dd><b>${esc(/^\$[\d,]+$/.test(v) ? v.replace(/,/g, ".") : v)}</b></dd>`).join("")}</dl>
+        ${b.unlock.length ? `<p class="muted" style="margin:10px 0 6px">Desbloqueie antes:</p><div class="flow">${b.unlock.map(u => itemLink(u)).join("")}</div>` : ""}`;
+      if (b.kind === "buy") return `<h3 class="w-h">🛒 Compra</h3>
+        <dl class="kv">${b.rows.map(([k, v]) => `<dt>${esc(BUYV[k] || k)}</dt><dd>${esc(buyTxt(v))}</dd>`).join("")}</dl>`;
+      return "";
+    }).join("");
+    return `
+      <div class="panel">
+        <h2 style="margin-top:0">Status</h2>
+        <div class="wstats">${w.stats.map(stat).join("")}</div>
+        <p class="muted" style="font-size:.82rem;margin:8px 0 0">A barra mostra a posição entre todas as armas do jogo: cheia = melhor valor.</p>
+        ${w.ammo.length ? `<h3 class="w-h">Munição</h3><div class="flow">${w.ammo.map(a => itemLink(a)).join("")}</div>` : ""}
+      </div>
+      ${blocks ? `<div class="panel"><h2 style="margin-top:0">Como conseguir</h2>${blocks}
+        <p class="muted" style="font-size:.82rem;margin:12px 0 0">Status e fontes: ${SRC} (dados do jogo).</p></div>` : ""}`;
+  }
+
   function viewItem(id) {
     setNav("itens");
     const i = ITEM[id];
@@ -418,6 +464,7 @@
           <h1>${esc(i.name.pt)}${i.tier ? ` <small class="muted">#${i.tier}</small>` : ""}</h1>
           <p class="en">${esc(i.name.en)}</p>
           <div class="panel"><p class="desc">${rich(i.desc.pt) || '<span class="unknown">Sem descrição no jogo.</span>'}</p></div>
+          ${weaponPanels(id)}
           <div class="panel">
             <div class="row" style="justify-content:space-between"><h3 style="margin:0">Informações</h3><button class="btn small" id="btnEdit">✏️ Editar valores</button></div>
             <dl class="kv" style="margin-top:12px">
@@ -1142,4 +1189,26 @@
   }
   window.addEventListener("hashchange", () => { route(); window.scrollTo(0, 0); });
   route();
+
+  /* ---------- jogadores online (Steam), gravado a cada 10 min pelo GitHub Actions (.github/workflows/online.yml) ---------- */
+  const ONLINE_URL = "https://raw.githubusercontent.com/lohnner/Rob-Run-Dihhz/data/online.json";
+  const $onB = document.getElementById("onlineBadge"), $onN = document.getElementById("onlineCount");
+  async function updateOnline() {
+    if (!$onB) return;
+    try {
+      const r = await fetch(ONLINE_URL + "?t=" + Math.floor(Date.now() / 60000), { cache: "no-store" });
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      if (typeof j.players !== "number") throw new Error("sem dados");
+      $onN.textContent = j.players.toLocaleString("pt-BR");
+      const when = j.updated ? new Date(j.updated) : null;
+      $onB.title = "Jogadores no ROB RUN agora (Steam)" + (when ? " · atualizado às " + when.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "");
+      $onB.classList.remove("off");
+    } catch (e) {
+      if ($onN.textContent === "…") $onN.textContent = "—";
+      $onB.classList.add("off");
+    }
+  }
+  updateOnline();
+  setInterval(updateOnline, 2 * 60 * 1000);
 })();

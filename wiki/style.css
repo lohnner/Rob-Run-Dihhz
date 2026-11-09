@@ -364,3 +364,32 @@ dialog.time-dlg { width: min(760px, 96vw); max-height: 88vh; overflow: auto; }
 .city-map + .map-src { max-width: 980px; margin-left: auto; margin-right: auto; }
 .city-map.small + .map-src { margin-left: 0; }
 
+
+/* players online badge (left of the version) */
+.online-badge { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 4px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: .78rem; font-weight: 600; white-space: nowrap; }
+.online-badge b { color: var(--text); font-weight: 800; }
+.online-dot { width: 8px; height: 8px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 0 rgba(61,220,132,.6); animation: onpulse 2s infinite; }
+.online-badge.off .online-dot { background: #777; animation: none; }
+@keyframes onpulse { 0% { box-shadow: 0 0 0 0 rgba(61,220,132,.55); } 70% { box-shadow: 0 0 0 7px rgba(61,220,132,0); } 100% { box-shadow: 0 0 0 0 rgba(61,220,132,0); } }
+.online-badge + .ver-badge { margin-left: 0; }
+@media (max-width: 900px) { .online-badge { margin-left: auto; } .online-badge + .ver-badge { margin-left: 0; } }
+@media (max-width: 1180px) and (min-width: 901px) { .online-lbl { display: none; } }
+
+
+/* weapon stats */
+.wstats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.wst { background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wst.top { border-color: var(--accent); }
+.wst-lbl { font-size: .7rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.wst-lbl em { font-style: normal; font-size: .62rem; background: var(--accent); color: #111; padding: 1px 6px; border-radius: 4px; }
+.wst-val { font-size: 1.55rem; font-weight: 900; line-height: 1.1; color: var(--text); }
+.wst-val small { font-size: .72rem; font-weight: 700; color: var(--muted); margin-left: 5px; }
+.wst-ex { font-size: .78rem; color: var(--muted); }
+.wst-bar { margin-top: auto; height: 5px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; }
+.wst-bar i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.w-h { margin: 18px 0 8px; font-size: .95rem; }
+.w-spot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); margin-bottom: 8px; }
+.w-where { font-weight: 700; }
+.w-need { display: flex; gap: 6px; flex-wrap: wrap; }
+.w-cnt { color: var(--accent); }

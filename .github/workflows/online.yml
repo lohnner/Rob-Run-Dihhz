@@ -1,0 +1,39 @@
+# Jogadores online do ROB RUN (Steam, appid 4262460).
+# A cada 10 minutos busca o número na API da Steam e grava online.json no branch "data"
+# (branch separado: não gera commits no main nem republica o GitHub Pages).
+# A wiki lê o arquivo em https://raw.githubusercontent.com/lohnner/Rob-Run-Dihhz/data/online.json
+name: Jogadores online
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: online
+  cancel-in-progress: true
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Buscar jogadores online na Steam e publicar no branch data
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          n=$(curl -fsS --retry 3 "https://api.steampowered.com/ISteamUserStats/GetNumberOfCurrentPlayers/v1/?appid=4262460" | jq -r '.response.player_count')
+          case "$n" in ''|*[!0-9]*) echo "resposta inválida: $n"; exit 1;; esac
+          mkdir out && cd out
+          printf '{"players":%s,"updated":"%s","source":"steam","appid":4262460}\n' "$n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > online.json
+          cat online.json
+          git init -q -b data
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add online.json
+          git commit -qm "Jogadores online: $n"
+          git push -qf "https://x-access-token:${TOKEN}@github.com/${REPO}.git" data
