@@ -481,7 +481,7 @@
             <p class="muted" style="font-size:.85rem">Preço × (1 + bônus do nível de notoriedade). Bônus do jogo via ${SRC}; o bônus de área de venda não está incluído.</p></div>` : ""}
           <div class="panel">
             <h3>Onde encontrar</h3>
-            ${srcs.length ? `<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Local</th><th>Tipo</th><th>Como sai</th><th class="num">Chance de drop</th></tr></thead><tbody>
+            ${srcs.length ? `<p style="margin:0 0 10px"><a class="map-link" href="#/locais/${id}">🗺️ Ver no mapa</a></p><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Local</th><th>Tipo</th><th>Como sai</th><th class="num">Chance de drop</th></tr></thead><tbody>
               ${where.map(([b, t]) => `<tr><td><a href="#/local/${b}">${esc(bName(BLD[b]))}</a></td><td class="muted">${esc(BLD[b].size.pt)}</td><td>${[...t].map(x => TAGS[x]).join(" · ")}</td>
               <td class="num">${v.chances[b] != null && v.chances[b] !== "" ? `<b class="hl">${v.chances[b]}%</b>` : '<span class="unknown">não divulgada</span>'}</td></tr>`).join("")}
               </tbody></table></div>
@@ -827,30 +827,94 @@
   function cityMap(active) {
     if (!MAP.img) return "";
     const pins = Object.entries(MAP.places).filter(([id]) => BLD[id]).map(([id, [x, y, ico]]) =>
-      `<a class="map-pin${active ? (id === active ? " on" : " dim") : ""}" href="#/local/${id}" style="left:${x}%;top:${y}%">
+      `<a class="map-pin${active ? (id === active ? " on" : " dim") : ""}" data-b="${id}" href="#/local/${id}" style="left:${x}%;top:${y}%">
         <img src="img/map/${ico}.webp" alt=""><span class="map-tip">${esc(bName(BLD[id]))}</span></a>`).join("");
     return `<div class="city-map${active ? " small" : ""}"><div class="city-map-in" style="padding-top:${MAP.ratio * 100}%">
       <img class="city-map-bg" src="${MAP.img}" alt="Mapa de Looty Bay">${pins}</div></div>
       <p class="muted map-src">Mapa de Looty Bay. Imagem e posições: ${SRC} (mapa interativo); ícones do jogo.</p>`;
   }
 
-  function viewPlaces() {
+  // item -> { place: Set(tags) }, built once from placeLoot
+  let ITEM_PLACES = null;
+  const itemPlaces = () => {
+    if (!ITEM_PLACES) {
+      ITEM_PLACES = {};
+      D.buildings.forEach(b => Object.entries(placeLoot(b.id)).forEach(([iid, tags]) => { (ITEM_PLACES[iid] = ITEM_PLACES[iid] || {})[b.id] = tags; }));
+    }
+    return ITEM_PLACES;
+  };
+  const HOW = { destaque: "⭐ Destaque", fixo: "📌 Ponto fixo", sorteio: "🎲 Sorteado" };
+  // map filter: pick an item, the map lights up only the places where it can drop
+  function wireMapFilter(start) {
+    const IP = itemPlaces(), $q = document.getElementById("mapQ"), $res = document.getElementById("mapRes"), $sel = document.getElementById("mapSel");
+    const pool = D.items.filter(i => IP[i.id]).map(i => ({ i, s: norm(i.name.pt + " " + i.name.en + " " + i.id), n: Object.keys(IP[i.id]).length }));
+    let cur = -1;
+    const apply = iid => {
+      const hit = iid && IP[iid] ? IP[iid] : null;
+      $app.querySelectorAll(".map-pin").forEach(p => { p.classList.toggle("hit", !!(hit && hit[p.dataset.b])); p.classList.toggle("dim", !!(hit && !hit[p.dataset.b])); });
+      $app.querySelectorAll("[data-card]").forEach(c => {
+        const t = hit && hit[c.dataset.card], how = c.querySelector(".mf-how");
+        c.hidden = !!(hit && !t);
+        if (how) { how.hidden = !t; how.textContent = t ? [...t].map(x => HOW[x]).join(" · ") : ""; }
+      });
+      $app.querySelectorAll("[data-nofilter]").forEach(e => { e.hidden = !!hit && !e.querySelector("[data-card]:not([hidden])"); });
+      if (hit) {
+        const it = ITEM[iid], n = Object.keys(hit).length;
+        $sel.innerHTML = `<span class="mf-chip r-${vals(iid).rarity || "none"}"><img src="${it.icon}" alt=""><a href="#/item/${iid}">${esc(it.name.pt)}${it.tier ? " #" + it.tier : ""}</a><button type="button" title="Limpar filtro" aria-label="Limpar filtro">✕</button></span>
+          <span class="muted">pode sair em <b>${n}</b> ${n === 1 ? "local" : "locais"}, acesos no mapa.</span>`;
+        $sel.querySelector("button").onclick = () => apply(null);
+      } else $sel.innerHTML = "";
+      history.replaceState(null, "", hit ? "#/locais/" + iid : "#/locais");
+    };
+    const show = () => {
+      const q = norm($q.value.trim());
+      cur = -1;
+      if (q.length < 2) { $res.hidden = true; return; }
+      const r = pool.filter(x => x.s.includes(q)).slice(0, 12);
+      $res.innerHTML = r.map(x => `<a href="#" data-i="${x.i.id}"><img src="${x.i.icon}" alt=""><span>${esc(x.i.name.pt)}${x.i.tier ? " #" + x.i.tier : ""}</span><span class="kind">${x.n} ${x.n === 1 ? "local" : "locais"}</span></a>`).join("")
+        || `<a>Nenhum item com esse nome sai nos locais</a>`;
+      $res.hidden = false;
+    };
+    const pick = a => { $res.hidden = true; $q.value = ""; apply(a.dataset.i); };
+    $q.addEventListener("input", show);
+    $q.addEventListener("keydown", e => {
+      const links = [...$res.querySelectorAll("a[data-i]")];
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        cur = Math.max(0, Math.min(links.length - 1, cur + (e.key === "ArrowDown" ? 1 : -1)));
+        links.forEach((l, i) => l.classList.toggle("sel", i === cur));
+      } else if (e.key === "Enter" && links.length && !$res.hidden) pick(links[Math.max(0, cur)]);
+      else if (e.key === "Escape") $res.hidden = true;
+    });
+    $res.addEventListener("click", e => { e.preventDefault(); const a = e.target.closest("a[data-i]"); if (a) pick(a); });
+    $q.addEventListener("blur", () => setTimeout(() => { $res.hidden = true; }, 200));
+    if (start && IP[start]) apply(start);
+  }
+
+  function viewPlaces(sel) {
     setNav("locais");
     const list = D.buildings.filter(b => b.rewards.length).sort((a, b) => a.name.pt.localeCompare(b.name.pt));
     const other = D.buildings.filter(b => !b.rewards.length);
     $app.innerHTML = `
       <h1>Locais</h1>
       <p class="muted">Prédios de Looty Bay que podem ser roubados. Clique num local, no mapa ou na lista, para ver todos os itens que podem sair nele.</p>
+      <div class="map-filter">
+        <label for="mapQ">🔎 Filtrar o mapa por item</label>
+        <div class="mf-box"><input id="mapQ" type="search" placeholder="Digite o nome de um item…" autocomplete="off"><div id="mapRes" class="search-results" hidden></div></div>
+        <div id="mapSel" class="mf-sel"></div>
+      </div>
       ${cityMap()}
       <div class="grid wide">
-        ${list.map(b => `<a class="card" href="#/local/${b.id}">
+        ${list.map(b => `<a class="card" data-card="${b.id}" href="#/local/${b.id}">
           <div class="title">${mapIco(b.id) || "📍"} ${esc(bName(b))}</div>
           <div class="sub">${esc(b.size.pt)} · ${Object.keys(placeLoot(b.id)).length} itens possíveis</div>
+          <div class="sub mf-how" hidden></div>
           <div class="flow">${b.rewards.map(r => ITEM[r] ? `<img src="${ITEM[r].icon}" alt="${esc(ITEM[r].name.pt)}" title="${esc(ITEM[r].name.pt)}" style="width:56px;height:40px;object-fit:contain">` : "").join("")}</div>
         </a>`).join("")}
       </div>
-      <h2>Outros locais</h2>
-      <div class="grid wide">${other.map(b => `<a class="card" href="#/local/${b.id}"><div class="title">${esc(bName(b))}</div><div class="sub">${esc(b.size.pt)}</div></a>`).join("")}</div>`;
+      <div data-nofilter><h2>Outros locais</h2>
+      <div class="grid wide">${other.map(b => `<a class="card" data-card="${b.id}" href="#/local/${b.id}"><div class="title">${esc(bName(b))}</div><div class="sub">${esc(b.size.pt)}</div><div class="sub mf-how" hidden></div></a>`).join("")}</div></div>`;
+    wireMapFilter(sel);
   }
 
   /* ---------- full loot per place (robrun.info map points, see loot-data.js) ---------- */
@@ -1183,7 +1247,7 @@
     ({
       "": viewHome, itens: viewItems, item: () => viewItem(a), mesas: viewBenches, mesa: () => viewBench(a),
       laboratorio: viewLabGuide, cultivo: viewFarmGuide,
-      locais: viewPlaces, local: () => viewPlace(a), cargas: viewCargos, carga: () => viewCargo(a),
+      locais: () => viewPlaces(a), local: () => viewPlace(a), cargas: viewCargos, carga: () => viewCargo(a),
       npcs: viewNpcs, guia: viewGuide
     }[page] || notFound)();
   }
