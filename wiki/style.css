@@ -414,4 +414,12 @@ dialog.time-dlg { width: min(760px, 96vw); max-height: 88vh; overflow: auto; }
 .card[hidden], [data-nofilter][hidden] { display: none !important; }
 .mf-how { color: var(--accent); font-weight: 600; }
 .map-link { display: inline-block; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel2); font-weight: 600; }
-.map-link:hover { border-color: var(--accent); text-decoration: none; }
+.map-link:hover { border-color: var(--accent); text-decoration: none; }.map-pin.box { width: 26px; height: 26px; font-size: 14px; line-height: 1; cursor: default; z-index: 1; }
+.map-pin.box:hover { z-index: 5; }
+.search-results a > img { flex: none; }
+.mf-chip > img { flex: none; }
+@media (max-width: 600px) { .map-pin.box { width: 18px; height: 18px; font-size: 10px; } }.search-results .pill, .mf-chip .pill { font-size: .72rem; padding: 2px 8px; flex: none; }
+.search-results .pill + .kind { margin-left: 8px; }
+.search-results .pill { margin-left: auto; }
+.card .meta { flex-wrap: wrap; row-gap: 6px; }
+.card .meta .pill { white-space: nowrap; }

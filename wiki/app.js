@@ -843,36 +843,70 @@
     }
     return ITEM_PLACES;
   };
+  // cargo -> places. Nothing public says where each cargo spawns (not in the client files, robrun.info or community guides:
+  // the server decides), so this is only the shop of the same kind as the crate, always shown as "não confirmado".
+  const CARGO_PLACES = {
+    cargo_jewelry: [["city_jewelry_store_east", "t"], ["city_jewelry_store_west", "t"]],
+    cargo_minimarket: [["city_mini_market_east_bridge", "t"], ["city_mini_market_east", "t"], ["city_mini_market_west", "t"]],
+    cargo_carparts: [["city_gas_station", "t"]],
+    cargo_medicine: [["city_pharmacy_shop_east", "t"], ["city_pharmacy_shop_west", "t"]],
+    cargo_electronics: [["city_electronics_store_east", "t"], ["city_electronics_store_west", "t"]],
+    cargo_equip: [["city_equipment_store_east", "t"], ["city_equipment_store_west", "t"]],
+    cargo_weapon_box_1: [["city_weapon_shop_east", "t"], ["city_weapon_shop_west", "t"]]
+  };
+  const CARGO_HOW = { t: "🏷️ Pelo tipo da loja (não confirmado)" };
+  const cargoPlaces = id => Object.fromEntries((CARGO_PLACES[id] || []).filter(([b]) => BLD[b]));
   const HOW = { destaque: "⭐ Destaque", fixo: "📌 Ponto fixo", sorteio: "🎲 Sorteado" };
-  // map filter: pick an item, the map lights up only the places where it can drop
+  // map filter: pick an item or a cargo, the map lights up only the places where it can be
   function wireMapFilter(start) {
     const IP = itemPlaces(), $q = document.getElementById("mapQ"), $res = document.getElementById("mapRes"), $sel = document.getElementById("mapSel");
-    const pool = D.items.filter(i => IP[i.id]).map(i => ({ i, s: norm(i.name.pt + " " + i.name.en + " " + i.id), n: Object.keys(IP[i.id]).length }));
+    const nLoc = n => n ? `${n} ${n === 1 ? "local" : "locais"}` : "fora do mapa";
+    const pool = D.items.filter(i => IP[i.id]).map(i => ({ id: i.id, t: i.name.pt + (i.tier ? " #" + i.tier : ""), img: `<img src="${i.icon}" alt="">`,
+      s: norm(i.name.pt + " " + i.name.en + " " + i.id), k: nLoc(Object.keys(IP[i.id]).length) }));
+    // every cargo, one line per rarity variant
+    D.cargo.forEach(c => {
+      const n = Object.keys(cargoPlaces(c.id)).length;
+      if (!n) return; // only cargo that lights up a place on the map
+      (FAN.cargo[c.id] || [{ name: c.name.pt, rarity: vals(c.id).rarity }]).forEach((v, vi) => pool.push({
+        id: c.id + "@" + vi, t: v.name, img: cargoImg(c.id), rar: v.rarity,
+        s: norm(v.name + " " + c.name.pt + " " + c.name.en + " " + c.id + " carga " + (RNAME[v.rarity] || "")), k: "Carga · " + nLoc(n) }));
+    });
     let cur = -1;
-    const apply = iid => {
-      const hit = iid && IP[iid] ? IP[iid] : null;
-      $app.querySelectorAll(".map-pin").forEach(p => { p.classList.toggle("hit", !!(hit && hit[p.dataset.b])); p.classList.toggle("dim", !!(hit && !hit[p.dataset.b])); });
+    const clearBtn = `<button type="button" title="Limpar filtro" aria-label="Limpar filtro">✕</button>`;
+    const apply = key => {
+      const [iid, vi] = (key || "").split("@"), cg = CARGO[iid];
+      const cp = cg ? cargoPlaces(iid) : null;
+      const hit = cg ? (Object.keys(cp).length ? cp : null) : iid && IP[iid] ? IP[iid] : null;
+      $app.querySelectorAll(".map-pin[data-b]").forEach(p => { p.classList.toggle("hit", !!(hit && hit[p.dataset.b])); p.classList.toggle("dim", !!(hit && !hit[p.dataset.b])); });
       $app.querySelectorAll("[data-card]").forEach(c => {
         const t = hit && hit[c.dataset.card], how = c.querySelector(".mf-how");
         c.hidden = !!(hit && !t);
-        if (how) { how.hidden = !t; how.textContent = t ? [...t].map(x => HOW[x]).join(" · ") : ""; }
+        if (how) { how.hidden = !t; how.textContent = !t ? "" : cg ? CARGO_HOW[t] : [...t].map(x => HOW[x]).join(" · "); }
       });
       $app.querySelectorAll("[data-nofilter]").forEach(e => { e.hidden = !!hit && !e.querySelector("[data-card]:not([hidden])"); });
-      if (hit) {
+      if (cg) {
+        const v = (FAN.cargo[iid] || [])[+vi || 0] || { name: cg.name.pt, rarity: vals(iid).rarity }, n = hit ? Object.keys(hit).length : 0;
+        const made = (MADEBY[iid] || []).map(b => `<a href="#/mesa/${b}">${esc(BENCH[b].name)}</a>`).join(", ");
+        $sel.innerHTML = `<span class="mf-chip">${cargoImg(iid)}<a href="#/carga/${iid}">${esc(v.name)}</a>${v.rarity ? `<span class="pill r-${v.rarity}">${RNAME[v.rarity] || v.rarity}</span>` : ""}${clearBtn}</span>
+          <span class="muted">${n ? `pode estar em <b>${n}</b> ${n === 1 ? "local" : "locais"}, acesos no mapa (pelo tipo da loja, não confirmado).`
+            : made ? `não fica em prédio do mapa: é produzida na sua base, em ${made}.`
+            : "sem local conhecido no mapa."}</span>`;
+      } else if (hit) {
         const it = ITEM[iid], n = Object.keys(hit).length;
-        $sel.innerHTML = `<span class="mf-chip r-${vals(iid).rarity || "none"}"><img src="${it.icon}" alt=""><a href="#/item/${iid}">${esc(it.name.pt)}${it.tier ? " #" + it.tier : ""}</a><button type="button" title="Limpar filtro" aria-label="Limpar filtro">✕</button></span>
+        $sel.innerHTML = `<span class="mf-chip"><img src="${it.icon}" alt=""><a href="#/item/${iid}">${esc(it.name.pt)}${it.tier ? " #" + it.tier : ""}</a>${clearBtn}</span>
           <span class="muted">pode sair em <b>${n}</b> ${n === 1 ? "local" : "locais"}, acesos no mapa.</span>`;
-        $sel.querySelector("button").onclick = () => apply(null);
       } else $sel.innerHTML = "";
-      history.replaceState(null, "", hit ? "#/locais/" + iid : "#/locais");
+      const btn = $sel.querySelector("button");
+      if (btn) btn.onclick = () => apply(null);
+      history.replaceState(null, "", cg || hit ? "#/locais/" + key : "#/locais");
     };
     const show = () => {
       const q = norm($q.value.trim());
       cur = -1;
       if (q.length < 2) { $res.hidden = true; return; }
-      const r = pool.filter(x => x.s.includes(q)).slice(0, 12);
-      $res.innerHTML = r.map(x => `<a href="#" data-i="${x.i.id}"><img src="${x.i.icon}" alt=""><span>${esc(x.i.name.pt)}${x.i.tier ? " #" + x.i.tier : ""}</span><span class="kind">${x.n} ${x.n === 1 ? "local" : "locais"}</span></a>`).join("")
-        || `<a>Nenhum item com esse nome sai nos locais</a>`;
+      const r = pool.filter(x => x.s.includes(q)).slice(0, 14);
+      $res.innerHTML = r.map(x => `<a href="#" data-i="${x.id}">${x.img}<span>${esc(x.t)}</span>${x.rar ? `<span class="pill r-${x.rar}">${RNAME[x.rar] || x.rar}</span>` : ""}<span class="kind">${x.k}</span></a>`).join("")
+        || `<a>Nenhum item ou carga com esse nome</a>`;
       $res.hidden = false;
     };
     const pick = a => { $res.hidden = true; $q.value = ""; apply(a.dataset.i); };
@@ -888,7 +922,7 @@
     });
     $res.addEventListener("click", e => { e.preventDefault(); const a = e.target.closest("a[data-i]"); if (a) pick(a); });
     $q.addEventListener("blur", () => setTimeout(() => { $res.hidden = true; }, 200));
-    if (start && IP[start]) apply(start);
+    if (start && (IP[start] || CARGO[start.split("@")[0]])) apply(start);
   }
 
   function viewPlaces(sel) {
@@ -899,8 +933,8 @@
       <h1>Locais</h1>
       <p class="muted">Prédios de Looty Bay que podem ser roubados. Clique num local, no mapa ou na lista, para ver todos os itens que podem sair nele.</p>
       <div class="map-filter">
-        <label for="mapQ">🔎 Filtrar o mapa por item</label>
-        <div class="mf-box"><input id="mapQ" type="search" placeholder="Digite o nome de um item…" autocomplete="off"><div id="mapRes" class="search-results" hidden></div></div>
+        <label for="mapQ">🔎 Filtrar o mapa por item ou carga</label>
+        <div class="mf-box"><input id="mapQ" type="search" placeholder="Digite o nome de um item ou carga…" autocomplete="off"><div id="mapRes" class="search-results" hidden></div></div>
         <div id="mapSel" class="mf-sel"></div>
       </div>
       ${cityMap()}
@@ -1032,7 +1066,13 @@
   function viewCargos() {
     setNav("cargas");
     const counts = {};
-    D.cargo.forEach(c => counts[cargoCat(c.id)] = (counts[cargoCat(c.id)] || 0) + 1);
+    // one card per rarity variant (ex.: Arbusto Maduro Q1/Q2/Q3)
+    const ENT = D.cargo.flatMap(c => {
+      const vs = FAN.cargo[c.id] || [];
+      return vs.length > 1 ? vs.map((v, vi) => ({ c, vi, name: v.name, rarity: v.rarity, price: v.price }))
+        : [{ c, vi: 0, name: c.name.pt, rarity: vals(c.id).rarity, price: vals(c.id).price, single: 1 }];
+    });
+    ENT.forEach(e => counts[cargoCat(e.c.id)] = (counts[cargoCat(e.c.id)] || 0) + 1);
     const cats = [...CARGO_CATS.map(([k, n]) => [k, n]), ["outros", "Outros"]].filter(([k]) => counts[k]);
     $app.innerHTML = `
       <h1>Cargas</h1>
@@ -1048,7 +1088,7 @@
       <div class="with-side">
         <aside class="sidebar" id="cchips">
           <div class="side-title">Categorias</div>
-          <button class="chip ${cargoState.cat === "all" ? "on" : ""}" data-c="all">Todas<span class="n">${D.cargo.length}</span></button>
+          <button class="chip ${cargoState.cat === "all" ? "on" : ""}" data-c="all">Todas<span class="n">${ENT.length}</span></button>
           ${cats.map(([k, n]) => `<button class="chip ${cargoState.cat === k ? "on" : ""}" data-c="${k}">${n}<span class="n">${counts[k]}</span></button>`).join("")}
         </aside>
         <div class="grid" id="cgrid"></div>
@@ -1059,24 +1099,24 @@
     sortSel.value = cargoState.sort;
     const draw = () => {
       const q = norm(cargoState.q);
-      const list = D.cargo.filter(c => (cargoState.cat === "all" || cargoCat(c.id) === cargoState.cat) &&
-        (!q || norm(c.name.pt + " " + c.name.en + " " + c.id).includes(q)));
+      const list = ENT.filter(e => (cargoState.cat === "all" || cargoCat(e.c.id) === cargoState.cat) &&
+        (!q || norm(e.name + " " + e.c.name.pt + " " + e.c.name.en + " " + e.c.id + " " + (RNAME[e.rarity] || "")).includes(q)));
       const s = cargoState.sort;
-      const byRarity = (a, b) => (RRANK[vals(b.id).rarity] || 0) - (RRANK[vals(a.id).rarity] || 0);
-      const byPrice = (a, b) => (vals(b.id).price ?? -1) - (vals(a.id).price ?? -1);
-      const byName = (a, b) => a.name.pt.localeCompare(b.name.pt);
+      const byRarity = (a, b) => (RRANK[b.rarity] || 0) - (RRANK[a.rarity] || 0);
+      const byPrice = (a, b) => (b.price ?? -1) - (a.price ?? -1);
+      const byName = (a, b) => a.name.localeCompare(b.name);
       list.sort((a, b) =>
         s === "name" ? byName(a, b) :
         s === "price" ? byPrice(a, b) || byName(a, b) :
-        s === "cat" ? CATIDX[cargoCat(a.id)] - CATIDX[cargoCat(b.id)] || byRarity(a, b) || byPrice(a, b) || byName(a, b) :
+        s === "cat" ? CATIDX[cargoCat(a.c.id)] - CATIDX[cargoCat(b.c.id)] || byRarity(a, b) || byPrice(a, b) || byName(a, b) :
         byRarity(a, b) || byPrice(a, b) || byName(a, b));
-      document.getElementById("cgrid").innerHTML = list.map(c => {
-        const r = vals(c.id).rarity;
+      document.getElementById("cgrid").innerHTML = list.map(e => {
+        const c = e.c, r = e.rarity;
         return `<a class="card ${r ? "r-" + r : ""}" href="#/carga/${c.id}">
           <div class="thumb">${CARGO_NO_IMG.has(c.id) ? `<span class="thumb-ico">📦</span>` : `<img src="img/cargo/${c.id}.webp" alt="" loading="lazy">`}</div>
-          <div class="title">${rname(c.id, esc(c.name.pt))}</div>
+          <div class="title"><span class="rname ${r ? "r-" + r : ""}">${esc(e.name)}</span></div>
           <div class="sub">${esc(CATNAME[cargoCat(c.id)] || "")}</div>
-          <div class="meta">${priceHtml(c.id)}${r ? rarityHtml(c.id) : ""}</div>
+          <div class="meta">${e.single ? priceHtml(c.id) : `<span class="pill price">${fmtMoney(e.price)}</span>`}${r ? `<span class="pill r-${r}">${RNAME[r] || r}</span>` : ""}</div>
         </a>`;
       }).join("") || `<p class="muted">Nenhuma carga encontrada.</p>`;
     };
@@ -1116,6 +1156,11 @@
               ${FAN.smugglerBonus.map(b => `<td class="num">${fmtMoney(Math.round(c.price * (1 + b.bonus / 100)))}</td>`).join("")}</tr>`).join("")}
             </tbody></table></div>
             <p class="muted" style="font-size:.85rem">Preço base × (1 + bônus de notoriedade). O bônus do local de venda não está incluído. Fonte: <a href="${FAN.source.cargoUrl}" target="_blank" rel="noopener">robrun.info</a>.</p></div>` : ""}
+          ${CARGO_PLACES[id] ? `<div class="panel"><h3>Onde encontrar</h3>
+            <p style="margin:0 0 10px"><a class="map-link" href="#/locais/${id}@0">🗺️ Ver no mapa</a></p>
+            <div class="tbl-wrap"><table class="tbl"><thead><tr><th>Local</th><th>Como</th></tr></thead><tbody>
+            ${Object.entries(cargoPlaces(id)).map(([b, k]) => `<tr><td><a href="#/local/${b}">${mapIco(b)} ${esc(bName(BLD[b]))}</a></td><td>${CARGO_HOW[k]}</td></tr>`).join("")}
+            </tbody></table></div></div>` : ""}
           ${made.length ? `<div class="panel"><h3>Produzida em</h3><div class="flow">${made.map(b => `<a class="node bench" href="#/mesa/${b}">🛠️ ${esc(BENCH[b].name)}</a>`).join("")}</div></div>` : ""}
           ${used.length ? `<div class="panel"><h3>Usada em</h3><div class="flow">${used.map(b => `<a class="node bench" href="#/mesa/${b}">🛠️ ${esc(BENCH[b].name)}</a>`).join("")}</div></div>` : ""}
         </div>
